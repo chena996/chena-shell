@@ -1030,6 +1030,8 @@ async fn exec_channel(
         if let Err(e) = ch.data(line.as_bytes()).await {
             return (-1, String::new(), format!("写入 sudo 密码失败: {e}"));
         }
+        // 立刻 EOF：口令我只会被 sudo 读走一次，后续命令不能从 stdin 读到残留。
+        let _ = ch.eof().await;
     }
 
     let mut out = CaptureBuffer::default();
@@ -1091,6 +1093,20 @@ async fn exec_collect_root(
         cwd = shell_single_quote(cwd),
         marker = RC_MARK
     );
+    // 先探测 sudo 凭据缓存：命中时 `sudo -S` 不会读取 stdin，
+    // 写入口令反而会残留在后续命令的标准输入里。
+    let password = match password {
+        Some(pw) => {
+            let (probe_code, _, _) = exec_channel(handle, "sudo -n true", timeout, None).await;
+            if probe_code == 0 {
+                None
+            } else {
+                crate::logging::register_secret(pw);
+                Some(pw)
+            }
+        }
+        None => None,
+    };
     let exec_cmd = if password.is_some() {
         format!("sudo -S -p '' -- sh -lc {}", shell_single_quote(&inner))
     } else {

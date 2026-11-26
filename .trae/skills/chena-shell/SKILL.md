@@ -63,7 +63,7 @@ Copy-Item -LiteralPath $src -Destination (Join-Path $dst 'SKILL.md') -Force
 
 1. 打开「设置 → MCP服务」，勾选「启用 MCP 服务」，确认地址为 `127.0.0.1` 并记录端口（默认 `8767`）。
 2. 点击「重新生成凭证」并在应用内确认，立即复制完整凭证；完整值只显示一次，取消不会生成。
-3. 优先让用户自己把凭证填入 MCP 客户端，不要求粘贴到聊天中。HTTP 使用 `Authorization: Bearer <凭证>`；stdio 使用 `CHENA_MCP_TOKEN=<凭证>`，`command` 必须指向绿色版 `Chena-Shell_V1.0.0.11.exe` 的实际完整路径。
+3. 优先让用户自己把凭证填入 MCP 客户端，不要求粘贴到聊天中。HTTP 使用 `Authorization: Bearer <凭证>`；stdio 使用 `CHENA_MCP_TOKEN=<凭证>`，`command` 必须指向绿色版 `Chena-Shell_V1.0.0.12.exe` 的实际完整路径。
 4. 保存后重启或重新连接客户端，再验证初始化和 `tools/list`。
 
 如果用户明确让 AI 修改本机客户端配置，凭证只能写入该配置，不得出现在回复、日志、报告或命令行参数中，也不得提交仓库。不要从加密配置、Windows 凭据管理器或其他文件中寻找明文凭证。
@@ -100,7 +100,7 @@ MCP 访问凭证与 `session_attach` 返回的 `attach_token` 是两种不同秘
 {
   "mcpServers": {
     "chena-shell": {
-      "command": "C:\\path\\to\\Chena-Shell_V1.0.0.11.exe",
+      "command": "C:\\path\\to\\Chena-Shell_V1.0.0.12.exe",
       "args": ["--mcp-stdio"],
       "env": {
         "CHENA_MCP_TOKEN": "<凭证>",
@@ -117,16 +117,16 @@ stdio 进程缺少 `CHENA_MCP_TOKEN` 会立即退出。只允许 loopback 地址
 
 ## 4. 工具清单
 
-先调用 `tools/list`；以下是 V1.0.0.11 的实际工具。更新 Chena-Shell 后必须让 AI 客户端重连 MCP 服务以刷新工具列表。
+先调用 `tools/list`；以下是 V1.0.0.12 的实际工具。更新 Chena-Shell 后必须让 AI 客户端重连 MCP 服务以刷新工具列表。
 
 ### 4.1 会话
 
 | 工具 | 必填参数 | 用途 |
 | --- | --- | --- |
 | `session_list` | — | 列出会话、连接状态、AI 状态；不返回秘密 |
-| `session_create` | host, username, password | 新建会话并默认立即连接；会出现在用户界面 |
-| `session_connect` | session_id | 连接已有会话 |
-| `session_disconnect` | session_id | 断开连接，保留配置 |
+| `session_create` | host, username, password | 新建会话并默认立即连接；会出现在用户界面。需人工确认：首次返回 WAIT_CONFIRM，确认后带 confirmation_id 重试；主机密钥未确认时返回 HOST_KEY_CONFIRM_REQUIRED |
+| `session_connect` | session_id | 连接已有会话。需人工确认；主机密钥未确认时返回 HOST_KEY_CONFIRM_REQUIRED |
+| `session_disconnect` | session_id | 断开连接，保留配置。需人工确认 |
 | `session_attach` | session_id, reason | 申请接入；可带 connection_id / require_active / mode / permissions |
 | `session_exec` | session_id, attach_token, command | 执行命令；可带 run_as / cwd / timeout_ms / confirmation_id |
 | `session_read` | session_id, attach_token | 读 token 绑定连接的终端回放 |
@@ -146,8 +146,8 @@ stdio 进程缺少 `CHENA_MCP_TOKEN` 会立即退出。只允许 loopback 地址
 | 工具 | 必填参数 |
 | --- | --- |
 | `forward_list` | session_id |
-| `forward_add` | session_id, listen_port, dest_port（可选 kind、dest_host、listen_host） |
-| `forward_stop` | forward_id |
+| `forward_add` | session_id, attach_token, listen_port, dest_port（可选 kind、dest_host、listen_host；listen_host 默认 127.0.0.1，非回环需审批） |
+| `forward_stop` | forward_id, attach_token（需为拥有该规则的会话 writer token） |
 
 ### 4.3 快速命令
 
@@ -429,7 +429,7 @@ cat / grep 只读查看配置
 
 ## 10. 版本边界
 
-- 当前为 V1.0.0.11，Windows x64 绿色版（不提供 NSIS/MSI 安装包）。
+- 当前为 V1.0.0.12，Windows x64 绿色版（不提供 NSIS/MSI 安装包）。
 - `sftp_read` / `sftp_write` 单次 ≤ 1 MiB，大文件让用户用 SFTP 窗口。
 - 「复制 SSH 渠道」的真实双向字节流尚未完成本机复验，不要向用户保证该能力已验收。
 - 主机监控依赖独立连接，刚连接时可能暂无快照。

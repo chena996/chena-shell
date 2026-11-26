@@ -448,6 +448,22 @@
   overflow-wrap: anywhere;
 }
 
+.settings-callout-dismiss {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 4px 12px;
+  font-size: 10px;
+  color: var(--md-primary);
+  background: transparent;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.settings-callout-dismiss:hover {
+  background: var(--md-surface-container-high);
+}
+
 .settings-mcp-status {
   display: flex;
   align-items: center;

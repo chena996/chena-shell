@@ -27,7 +27,7 @@ pub fn tools_list() -> Value {
       "tools": [
         {
           "name": "session_create",
-          "description": "Create a new SSH session (host/port/username/password) and optionally connect immediately. Saved to Chena-Shell's session list, so the human sees it in the UI.",
+          "description": "Create a new SSH session (host/port/username/password) and optionally connect immediately. Saved to Chena-Shell's session list, so the human sees it in the UI. Requires human approval: the first call returns WAIT_CONFIRM, retry with confirmation_id after approval.",
           "inputSchema": {
             "type": "object",
             "properties": {
@@ -37,26 +37,33 @@ pub fn tools_list() -> Value {
               "password": { "type": "string", "description": "Password (password auth)" },
               "name": { "type": "string", "description": "Display name, defaults to host" },
               "connect": { "type": "boolean", "description": "Connect right after creating, default true" },
-              "auto_connect": { "type": "boolean", "description": "Auto-connect on next app start, default false" }
+              "auto_connect": { "type": "boolean", "description": "Auto-connect on next app start, default false" },
+              "confirmation_id": { "type": "string", "description": "ID returned by a previous WAIT_CONFIRM response" }
             },
             "required": ["host", "username", "password"]
           }
         },
         {
           "name": "session_connect",
-          "description": "Connect an existing (configured) SSH session by id.",
+          "description": "Connect an existing (configured) SSH session by id. Requires human approval: the first call returns WAIT_CONFIRM, retry with confirmation_id after approval.",
           "inputSchema": {
             "type": "object",
-            "properties": { "session_id": { "type": "string" } },
+            "properties": {
+              "session_id": { "type": "string" },
+              "confirmation_id": { "type": "string", "description": "ID returned by a previous WAIT_CONFIRM response" }
+            },
             "required": ["session_id"]
           }
         },
         {
           "name": "session_disconnect",
-          "description": "Close an SSH session's connection (the session config is kept).",
+          "description": "Close an SSH session's connection (the session config is kept). Requires human approval: the first call returns WAIT_CONFIRM, retry with confirmation_id after approval.",
           "inputSchema": {
             "type": "object",
-            "properties": { "session_id": { "type": "string" } },
+            "properties": {
+              "session_id": { "type": "string" },
+              "confirmation_id": { "type": "string", "description": "ID returned by a previous WAIT_CONFIRM response" }
+            },
             "required": ["session_id"]
           }
         },
@@ -146,27 +153,32 @@ pub fn tools_list() -> Value {
         },
         {
           "name": "forward_add",
-          "description": "Add a port-forward rule and start it immediately. kind=local (ssh -L), kind=remote (ssh -R).",
+          "description": "Add a port-forward rule and start it immediately. kind=local (ssh -L), kind=remote (ssh -R). Requires a writer attach_token. listen_host defaults to 127.0.0.1; any non-loopback listen address triggers human approval (first call returns WAIT_CONFIRM).",
           "inputSchema": {
             "type": "object",
             "properties": {
               "session_id": { "type": "string" },
+              "attach_token": { "type": "string", "description": "Writer attach token for this session" },
               "kind": { "type": "string", "enum": ["local", "remote"], "default": "local" },
               "listen_port": { "type": "integer" },
               "dest_host": { "type": "string", "default": "127.0.0.1" },
               "dest_port": { "type": "integer" },
-              "listen_host": { "type": "string" }
+              "listen_host": { "type": "string", "description": "Defaults to 127.0.0.1; non-loopback values require approval" },
+              "confirmation_id": { "type": "string", "description": "ID returned by a previous WAIT_CONFIRM response" }
             },
-            "required": ["session_id", "listen_port", "dest_port"]
+            "required": ["session_id", "attach_token", "listen_port", "dest_port"]
           }
         },
         {
           "name": "forward_stop",
-          "description": "Stop a running port-forward rule by id.",
+          "description": "Stop a running port-forward rule by id. Requires the writer attach_token of the session that owns the rule.",
           "inputSchema": {
             "type": "object",
-            "properties": { "forward_id": { "type": "string" } },
-            "required": ["forward_id"]
+            "properties": {
+              "forward_id": { "type": "string" },
+              "attach_token": { "type": "string" }
+            },
+            "required": ["forward_id", "attach_token"]
           }
         },
         {
@@ -255,9 +267,9 @@ pub async fn call(
         .cloned()
         .unwrap_or_else(|| json!({}));
     match name {
-        "session_create" => session_create(args, state, app).await,
-        "session_connect" => session_connect(args, state, app).await,
-        "session_disconnect" => session_disconnect(args, state),
+        "session_create" => session_create(args, state, app, client).await,
+        "session_connect" => session_connect(args, state, app, client).await,
+        "session_disconnect" => session_disconnect(args, state, client),
         "session_list" => session_list(state),
         "session_attach" => session_attach(args, state, client),
         "session_exec" => session_exec(args, state, client).await,
@@ -265,8 +277,8 @@ pub async fn call(
         "session_detach" => session_detach(args, state, client),
         "session_monitor" => session_monitor(args, state),
         "forward_list" => forward_list(args, state),
-        "forward_add" => forward_add(args, state),
-        "forward_stop" => forward_stop(args, state),
+        "forward_add" => forward_add(args, state, client),
+        "forward_stop" => forward_stop(args, state, client),
         "quickcmd_list" => json!({"quick_commands": state.inner.read().quick_commands.clone()}),
         "quickcmd_run" => session_exec(args, state, client).await,
         "sftp_list" => sftp_list(args, state, client).await,
@@ -308,7 +320,12 @@ fn get_handle(state: &AppState, session_id: &str) -> Result<Arc<SessionHandle>, 
         .ok_or_else(|| json!({"error": "session not found"}))
 }
 
-async fn session_create(args: Value, state: &AppState, app: &tauri::AppHandle) -> Value {
+async fn session_create(
+    args: Value,
+    state: &AppState,
+    app: &tauri::AppHandle,
+    client: &ClientContext,
+) -> Value {
     let host = match string_arg(&args, "host") {
         Ok(value) => value.to_string(),
         Err(error) => return error,
@@ -365,6 +382,21 @@ async fn session_create(args: Value, state: &AppState, app: &tauri::AppHandle) -
     if let Err(error) = crate::commands::validate_auth_config(&config.auth) {
         return json!({"error": error});
     }
+    // 新建会话会把凭据写入本机凭据库并可能对外发起连接，必须人工确认一次。
+    let preview = format!(
+        "创建 SSH 会话 {}@{}:{}",
+        config.username, config.host, config.port
+    );
+    if let Some(response) = require_approval(
+        &args,
+        state,
+        client,
+        &format!("mcp-create:{}", client.client_id),
+        "AI 请求新建 SSH 会话",
+        &preview,
+    ) {
+        return response;
+    }
     let handle = Arc::new(SessionHandle::new(
         config,
         settings.global_blocklist,
@@ -382,7 +414,16 @@ async fn session_create(args: Value, state: &AppState, app: &tauri::AppHandle) -
 
     let mut connected = false;
     let mut error = None;
-    if connect_now {
+    // AI 不能在用户核验指纹前自动建立首条连接，只提示用户手动连接一次。
+    let created = handle.config_snapshot();
+    let host_key_pending =
+        !crate::host_key::has_known_host(&created.host, created.port).unwrap_or(false);
+    if connect_now && host_key_pending {
+        error = Some(
+            "HOST_KEY_CONFIRM_REQUIRED: 该主机密钥尚未人工确认，请在 Chena-Shell 界面中手动连接一次并核对指纹"
+                .to_string(),
+        );
+    } else if connect_now {
         let st = state.clone();
         let ap = app.clone();
         match tokio::task::spawn_blocking(move || handle.connect(st, ap)).await {
@@ -400,7 +441,12 @@ async fn session_create(args: Value, state: &AppState, app: &tauri::AppHandle) -
     })
 }
 
-async fn session_connect(args: Value, state: &AppState, app: &tauri::AppHandle) -> Value {
+async fn session_connect(
+    args: Value,
+    state: &AppState,
+    app: &tauri::AppHandle,
+    client: &ClientContext,
+) -> Value {
     let sid = match string_arg(&args, "session_id") {
         Ok(value) => value.to_string(),
         Err(error) => return error,
@@ -409,6 +455,29 @@ async fn session_connect(args: Value, state: &AppState, app: &tauri::AppHandle) 
         Ok(value) => value,
         Err(error) => return error,
     };
+    let config = handle.config_snapshot();
+    // AI 不能在用户未核验指纹前建立首条连接。
+    if !crate::host_key::has_known_host(&config.host, config.port).unwrap_or(false) {
+        return json!({
+            "ok": false,
+            "error": "HOST_KEY_CONFIRM_REQUIRED",
+            "detail": "该主机的密钥尚未人工确认；请让用户在 Chena-Shell 界面中手动连接一次并核对指纹，然后再重试。"
+        });
+    }
+    let preview = format!(
+        "连接 SSH 会话 {sid}（{}@{}:{}）",
+        config.username, config.host, config.port
+    );
+    if let Some(response) = require_approval(
+        &args,
+        state,
+        client,
+        &sid,
+        "AI 请求连接已有 SSH 会话",
+        &preview,
+    ) {
+        return response;
+    }
     let st = state.clone();
     let ap = app.clone();
     match tokio::task::spawn_blocking(move || handle.connect(st, ap)).await {
@@ -420,19 +489,25 @@ async fn session_connect(args: Value, state: &AppState, app: &tauri::AppHandle) 
     }
 }
 
-fn session_disconnect(args: Value, state: &AppState) -> Value {
+fn session_disconnect(args: Value, state: &AppState, client: &ClientContext) -> Value {
     let sid = match string_arg(&args, "session_id") {
+        Ok(value) => value.to_string(),
+        Err(error) => return error,
+    };
+    let handle = match get_handle(state, &sid) {
         Ok(value) => value,
         Err(error) => return error,
     };
-    let handle = match get_handle(state, sid) {
-        Ok(value) => value,
-        Err(error) => return error,
-    };
+    let preview = format!("断开 SSH 会话 {sid}");
+    if let Some(response) =
+        require_approval(&args, state, client, &sid, "AI 请求断开 SSH 会话", &preview)
+    {
+        return response;
+    }
     handle.force_detach(state);
     handle.close();
-    approval::cancel_session(state, sid, "会话已断开，未决审批已取消");
-    state.inner.write().monitor_samples.remove(sid);
+    approval::cancel_session(state, &sid, "会话已断开，未决审批已取消");
+    state.inner.write().monitor_samples.remove(&sid);
     json!({"ok": true, "session_id": sid, "connected": false})
 }
 
@@ -909,6 +984,62 @@ fn pending_response(state: &AppState, confirmation_id: &str) -> Value {
         None => {
             json!({"ok": false, "error": "confirmation not found", "confirmation_id": confirmation_id})
         }
+    }
+}
+
+/// 管理类 MCP 操作（建会话、连接、断开、非回环端口转发）必须经人工确认一次。
+///
+/// 返回 `None` 表示确认已通过，可以继续执行；返回 `Some(response)` 表示应直接返回给客户端。
+fn require_approval(
+    args: &Value,
+    state: &AppState,
+    client: &ClientContext,
+    session_id: &str,
+    reason: &str,
+    preview: &str,
+) -> Option<Value> {
+    match args.get("confirmation_id").and_then(Value::as_str) {
+        None => {
+            match approval::request(
+                state,
+                ConfirmationKind::Exec,
+                session_id,
+                &client.client_id,
+                &client.client_name,
+                reason,
+                Some(preview.to_string()),
+                None,
+                None,
+            ) {
+                Ok(confirmation) => Some(pending_response(state, &confirmation.id)),
+                Err(error) => Some(json!({"ok": false, "error": error})),
+            }
+        }
+        Some(confirmation_id) => match approval::consume_approved(
+            state,
+            confirmation_id,
+            ConfirmationKind::Exec,
+            session_id,
+            &client.client_id,
+        ) {
+            Ok(confirmation) => {
+                // 批准只对当次目标有效，不能用创建 A 的批准去创建 B。
+                if let Some(original) = confirmation.command.as_deref() {
+                    if original != preview {
+                        return Some(json!({
+                            "ok": false,
+                            "error": "confirmation does not match this operation",
+                            "confirmation_id": confirmation_id,
+                        }));
+                    }
+                }
+                None
+            }
+            Err(error) if error == "WAIT_CONFIRM" => Some(pending_response(state, confirmation_id)),
+            Err(error) => {
+                Some(json!({"ok": false, "error": error, "confirmation_id": confirmation_id}))
+            }
+        },
     }
 }
 
@@ -1479,6 +1610,10 @@ const DANGEROUS_ARGS: &[(&str, &[&str])] = &[
     ("date", &["-s", "--set"]),
     ("ping", &["-f", "--flood"]),
     ("file", &["-C", "--compile"]),
+    // dig 的 -f 会把任意文件按查询逐行读入并回显解析内容。
+    ("dig", &["-f", "--file"]),
+    // sar 的 -o 写盘、-f 读任意文件。
+    ("sar", &["-o", "-f"]),
     (
         "curl",
         &[
@@ -1497,6 +1632,12 @@ const DANGEROUS_ARGS: &[(&str, &[&str])] = &[
             "-F",
             "--form",
             "--json",
+            "-D",
+            "--dump-header",
+            "-c",
+            "--cookie-jar",
+            "--trace",
+            "--trace-ascii",
         ],
     ),
     ("docker logs", &["-f", "--follow"]),
@@ -1528,7 +1669,7 @@ fn has_dangerous_argument(command: &str) -> bool {
     })
 }
 
-/// 拒绝变量/家目录展开与 `..` 路径穿越，避免白名单前缀被用来读目录外的文件。
+/// 拒绝变量/家目录展开、通配符与 `..` 路径穿越，避免白名单前缀被用来读目录外的文件。
 fn has_unsafe_path_syntax(command: &str) -> bool {
     if command.contains(['$', '~']) {
         return true;
@@ -1537,9 +1678,60 @@ fn has_unsafe_path_syntax(command: &str) -> bool {
         .split_whitespace()
         .map(normalize_token)
         .any(|token| {
+            // 通配符会让只读命令展开到白名单之外的路径。
+            if token.contains(['*', '[']) {
+                return true;
+            }
+            if token.contains('?') && token.contains('/') {
+                return true;
+            }
             token
                 .split(|c| c == '/' || c == '\\')
                 .any(|part| part == "..")
+        })
+}
+
+/// 高敏感路径：一旦出现在参数里就拒绝，避免只读命令顺带泄露密钥与影子口令。
+///
+/// 说明：无路径声明的条目（如 `ls`、`stat`）允许多数绝对路径，否则 `df /var`
+/// 这类日常诊断会被误伤；这里只拦真正敏感的目标。
+const SENSITIVE_PATHS: &[&str] = &[
+    "/root",
+    "/etc/shadow",
+    "/etc/gshadow",
+    "/etc/sudoers",
+    "/etc/ssh",
+    "/var/lib/shadow",
+    "/proc/sysrq-trigger",
+];
+
+fn has_sensitive_path(command: &str) -> bool {
+    command
+        .split_whitespace()
+        .map(normalize_token)
+        .any(|token| {
+            let lower = token.to_ascii_lowercase();
+            // 任意位置出现的私钥名与 .ssh 目录。
+            if lower.contains("id_rsa")
+                || lower.contains("id_ed25519")
+                || lower.contains("id_ecdsa")
+                || lower.contains("/.ssh")
+                || lower.ends_with(".ssh")
+            {
+                return true;
+            }
+            // /proc/<pid>/environ 与 mem 会直接暴露进程环境变量和内存。
+            if lower.starts_with("/proc/")
+                && (lower.ends_with("/environ") || lower.ends_with("/mem"))
+            {
+                return true;
+            }
+            SENSITIVE_PATHS.iter().any(|path| {
+                lower == *path
+                    || lower
+                        .strip_prefix(path)
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
         })
 }
 
@@ -1603,7 +1795,10 @@ fn readonly_command_allowed(command: &str, allowlist: &[String]) -> bool {
     {
         return false;
     }
-    if has_dangerous_argument(command) || has_unsafe_path_syntax(command) {
+    if has_dangerous_argument(command)
+        || has_unsafe_path_syntax(command)
+        || has_sensitive_path(command)
+    {
         return false;
     }
     allowlist.iter().any(|entry| {
@@ -1619,8 +1814,24 @@ fn readonly_command_allowed(command: &str, allowlist: &[String]) -> bool {
                     rest.starts_with(char::is_whitespace)
                 }
             });
-        matched && (!entry_has_path(entry) || absolute_paths_allowed(command, allowlist))
+        matched
+            && (absolute_paths_allowed(command, allowlist)
+                || (!entry_has_path(entry) && path_tolerant_command(command)))
     })
+}
+
+/// 只输出元数据、不读取文件内容的命令，允许带白名单未声明的绝对路径。
+///
+/// 这些命令仍受敏感路径与通配符检查约束，不能用来读取密钥或影子口令。
+fn path_tolerant_command(command: &str) -> bool {
+    const PATH_TOLERANT: &[&str] = &[
+        "ls", "stat", "du", "df", "wc", "readlink", "lsof", "findmnt", "blkid",
+    ];
+    command
+        .split_whitespace()
+        .next()
+        .map(normalize_token)
+        .is_some_and(|head| PATH_TOLERANT.contains(&head))
 }
 
 /// diag 只读执行：白名单 + 阻断规则，既不申请审批也不允许 root。
@@ -1955,8 +2166,12 @@ fn forward_list(args: Value, state: &AppState) -> Value {
     json!({"forwards": list})
 }
 
-fn forward_add(args: Value, state: &AppState) -> Value {
+fn forward_add(args: Value, state: &AppState, client: &ClientContext) -> Value {
     let sid = match string_arg(&args, "session_id") {
+        Ok(value) => value.to_string(),
+        Err(error) => return error,
+    };
+    let token = match string_arg(&args, "attach_token") {
         Ok(value) => value,
         Err(error) => return error,
     };
@@ -1972,31 +2187,59 @@ fn forward_add(args: Value, state: &AppState) -> Value {
         "remote" => crate::state::ForwardKind::Remote,
         _ => crate::state::ForwardKind::Local,
     };
-    let default_listen = if kind == crate::state::ForwardKind::Remote {
-        "0.0.0.0"
-    } else {
-        "127.0.0.1"
+    let listen_host = args
+        .get("listen_host")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("127.0.0.1")
+        .to_string();
+    let dest_host = args
+        .get("dest_host")
+        .and_then(Value::as_str)
+        .unwrap_or("127.0.0.1")
+        .to_string();
+    let handle = match get_handle(state, &sid) {
+        Ok(value) => value,
+        Err(error) => return error,
     };
+    match handle.validate_attach_role(token, &client.client_id) {
+        Ok(AttachRole::Writer) => {}
+        Ok(_) => {
+            return json!({
+                "ok": false,
+                "error": "FORBIDDEN",
+                "detail": "端口转发需要 writer 权限的 attach_token"
+            })
+        }
+        Err(error) => return json!({"ok": false, "error": error}),
+    }
     let spec = PortForwardConfig {
         id: format!("fw-{}", &uuid::Uuid::new_v4().to_string()[..8]),
         kind,
-        listen_host: args
-            .get("listen_host")
-            .and_then(Value::as_str)
-            .unwrap_or(default_listen)
-            .into(),
+        listen_host: listen_host.clone(),
         listen_port,
-        dest_host: args
-            .get("dest_host")
-            .and_then(Value::as_str)
-            .unwrap_or("127.0.0.1")
-            .into(),
+        dest_host: dest_host.clone(),
         dest_port,
         enabled: true,
     };
+    // 非回环监听会把服务暴露到局域网，必须人工确认。
+    if !is_loopback_host(&listen_host) {
+        let preview = format!("端口转发 {listen_host}:{listen_port} → {dest_host}:{dest_port}");
+        if let Some(response) = require_approval(
+            &args,
+            state,
+            client,
+            &sid,
+            "AI 请求把端口转发监听在非回环地址",
+            &preview,
+        ) {
+            return response;
+        }
+    }
     {
         let inner = state.inner.read();
-        let Some(handle) = inner.sessions.get(sid) else {
+        let Some(handle) = inner.sessions.get(&sid) else {
             return json!({"error": "session not found"});
         };
         handle.config.write().port_forwards.push(spec.clone());
@@ -2004,7 +2247,7 @@ fn forward_add(args: Value, state: &AppState) -> Value {
     if let Err(error) = crate::commands::persist(state) {
         return json!({"error": format!("端口转发保存失败: {error}")});
     }
-    match crate::forward::start(state, sid, spec.clone()) {
+    match crate::forward::start(state, &sid, spec.clone()) {
         Ok(()) => json!({
             "ok": true,
             "forward_id": spec.id,
@@ -2015,12 +2258,56 @@ fn forward_add(args: Value, state: &AppState) -> Value {
     }
 }
 
-fn forward_stop(args: Value, state: &AppState) -> Value {
+/// 只有回环地址不需要审批；其余监听地址会暴露到局域网甚至公网。
+fn is_loopback_host(host: &str) -> bool {
+    matches!(host, "127.0.0.1" | "::1" | "[::1]" | "localhost")
+}
+
+fn forward_stop(args: Value, state: &AppState, client: &ClientContext) -> Value {
     let fid = match string_arg(&args, "forward_id") {
+        Ok(value) => value.to_string(),
+        Err(error) => return error,
+    };
+    let token = match string_arg(&args, "attach_token") {
         Ok(value) => value,
         Err(error) => return error,
     };
-    crate::forward::stop(state, fid);
+    // 先找到该转发属于哪个会话，再用该会话的 writer 权限确认身份。
+    let owner = {
+        let inner = state.inner.read();
+        let found = inner
+            .sessions
+            .iter()
+            .find(|entry| {
+                entry
+                    .value()
+                    .config_snapshot()
+                    .port_forwards
+                    .iter()
+                    .any(|forward| forward.id == fid)
+            })
+            .map(|entry| entry.key().clone());
+        found
+    };
+    let Some(owner) = owner else {
+        return json!({"ok": false, "error": "forward not found", "forward_id": fid});
+    };
+    let handle = match get_handle(state, &owner) {
+        Ok(value) => value,
+        Err(error) => return error,
+    };
+    match handle.validate_attach_role(token, &client.client_id) {
+        Ok(AttachRole::Writer) => {}
+        Ok(_) => {
+            return json!({
+                "ok": false,
+                "error": "FORBIDDEN",
+                "detail": "停止端口转发需要 writer 权限的 attach_token"
+            })
+        }
+        Err(error) => return json!({"ok": false, "error": error}),
+    }
+    crate::forward::stop(state, &fid);
     json!({"ok": true, "forward_id": fid, "running": false})
 }
 
@@ -2958,6 +3245,50 @@ mod tests {
             "curl -I -X DELETE http://127.0.0.1/api",
             &allowlist
         ));
+    }
+
+    #[test]
+    fn diag_allowlist_blocks_parameter_based_file_access() {
+        let allowlist = crate::state::default_diag_allowlist();
+        // dig -f 会把任意文件逐行读入诊断输出。
+        assert!(!readonly_command_allowed("dig -f /etc/shadow", &allowlist));
+        assert!(!readonly_command_allowed(
+            "dig --file /etc/passwd",
+            &allowlist
+        ));
+        assert!(readonly_command_allowed("dig example.com", &allowlist));
+        // curl 的 -D / -c 可写任意文件。
+        assert!(!readonly_command_allowed(
+            "curl -I -D /tmp/x http://127.0.0.1/",
+            &allowlist
+        ));
+        assert!(!readonly_command_allowed(
+            "curl -I -c /tmp/x http://127.0.0.1/",
+            &allowlist
+        ));
+        assert!(readonly_command_allowed(
+            "curl -I http://127.0.0.1/",
+            &allowlist
+        ));
+        // sar 写盘。
+        assert!(!readonly_command_allowed("sar -o /tmp/x 1 1", &allowlist));
+        // 未声明路径的读取类命令不能顺带读任意文件。
+        assert!(!readonly_command_allowed("cat /etc/shadow", &allowlist));
+        assert!(readonly_command_allowed(
+            "cat /var/log/nginx/access.log",
+            &allowlist
+        ));
+        // 元数据类命令允许常见路径，敏感路径仍拒绝。
+        assert!(readonly_command_allowed("ls -la /tmp", &allowlist));
+        assert!(!readonly_command_allowed("ls /root", &allowlist));
+        assert!(!readonly_command_allowed("stat /etc/shadow", &allowlist));
+        assert!(!readonly_command_allowed(
+            "ls /home/deploy/.ssh",
+            &allowlist
+        ));
+        // 通配符会让只读命令展开到白名单之外。
+        assert!(!readonly_command_allowed("cat /var/log/*", &allowlist));
+        assert!(!readonly_command_allowed("wc -l /etc/*", &allowlist));
     }
 
     #[test]

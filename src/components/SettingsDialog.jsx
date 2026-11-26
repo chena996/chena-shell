@@ -32,6 +32,9 @@ const REGEX_FIELDS = {
   sudo_confirm_list: { category: 'ai', label: 'sudo 确认清单' },
 };
 
+/// 一次性提示：V1.0.0.12 收紧了只读诊断白名单。
+const ALLOWLIST_NOTICE_KEY = 'chena-shell-allowlist-tightened-v12';
+
 function stringValue(value) {
   return String(value ?? '');
 }
@@ -214,6 +217,21 @@ export default function SettingsDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [notice, setNotice] = useState('');
+  const [allowlistNoticeOpen, setAllowlistNoticeOpen] = useState(() => {
+    try {
+      return localStorage.getItem(ALLOWLIST_NOTICE_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const dismissAllowlistNotice = () => {
+    setAllowlistNoticeOpen(false);
+    try {
+      localStorage.setItem(ALLOWLIST_NOTICE_KEY, '1');
+    } catch {
+      // 存储不可用时只关闭本次提示，不影响设置保存。
+    }
+  };
   const [localMcpStatus, setLocalMcpStatus] = useState(mcpStatus);
   const [credential, setCredential] = useState('');
   const [confirmRotate, setConfirmRotate] = useState(false);
@@ -644,9 +662,19 @@ export default function SettingsDialog({
                 <div className="settings-toggle-list">
                   <Toggle id="settings-ai-diag-enabled" label="启用只读诊断模式" description="只读诊断的观察者不独占终端，只能执行下方白名单内的只读命令；不允许管道、重定向、命令串联和 root。" checked={draft.ai_diag_enabled} onChange={event => updateField('ai_diag_enabled', event.target.checked)} disabled={isBusy} />
                 </div>
+                {allowlistNoticeOpen && (
+                  <div className="settings-callout settings-callout--neutral" role="status">
+                    <span className="material-icons-round" aria-hidden="true">shield</span>
+                    <div>
+                      <strong>本次升级收紧了只读白名单</strong>
+                      <p>无路径声明的条目不再接受任意绝对路径；新增拦截 dig -f、curl -D/-c、sar -o 等危险参数，并拒绝通配符与 /root、/etc/shadow、.ssh 等敏感路径。下方已有条目若依赖这些写法会失效，需要改成显式路径。</p>
+                    </div>
+                    <button type="button" className="settings-callout-dismiss" onClick={dismissAllowlistNotice}>知道了</button>
+                  </div>
+                )}
                 <div className="settings-grid">
                   {numberField('ai_task_max_minutes', '任务授权最长时长', '范围 1–1440 分钟；任务到期后自动断开。')}
-                  <Field id="settings-ai-diag-allowlist" label="只读诊断命令白名单（每行一个）" hint="普通条目按完整命令或参数边界匹配，例如 ss 放行 ss -s；以 / 结尾的条目按目录前缀匹配，例如 cat /proc/ 放行 cat /proc/net/dev。拒绝 .. 路径穿越、$ 与 ~ 展开、管道重定向和跟随输出等危险参数；会话以 root 登录时只放行内置条目。留空表示不允许任何只读诊断执行。" wide>
+                  <Field id="settings-ai-diag-allowlist" label="只读诊断命令白名单（每行一个）" hint="普通条目按完整命令或参数边界匹配，例如 ss 放行 ss -s；以 / 结尾的条目按目录前缀匹配，例如 cat /proc/ 放行 cat /proc/net/dev。只有 ls、stat、du、df、wc、readlink、lsof 等元数据命令可带未声明的绝对路径，其余读取类命令必须显式声明路径；始终拒绝通配符、.. 穿越、$ 与 ~ 展开、敏感路径以及 dig -f、curl -D/-c、sar -o 等危险参数；会话以 root 登录时只放行内置条目。留空表示不允许任何只读诊断执行。" wide>
                     <textarea id="settings-ai-diag-allowlist" className="settings-code-input" rows={8} value={draft.ai_diag_allowlist.join('\n')} onChange={event => updateField('ai_diag_allowlist', event.target.value.split(/\r?\n/))} spellCheck={false} disabled={isBusy || !draft.ai_diag_enabled} />
                   </Field>
                 </div>
@@ -688,7 +716,7 @@ export default function SettingsDialog({
                   <div>
                     <strong>标准 MCP 客户端接入</strong>
                     <p>HTTP：POST <code>{localMcpStatus?.endpoint || 'http://127.0.0.1:8767/mcp'}</code>，请求头使用 <code>Authorization: Bearer &lt;凭证&gt;</code>。</p>
-                    <p>stdio：运行 <code>Chena-Shell_V1.0.0.11.exe --mcp-stdio</code>，并设置环境变量 <code>CHENA_MCP_TOKEN</code>；非默认端口时同时设置 <code>CHENA_MCP_URL</code>。</p>
+                    <p>stdio：运行 <code>Chena-Shell_V1.0.0.12.exe --mcp-stdio</code>，并设置环境变量 <code>CHENA_MCP_TOKEN</code>；非默认端口时同时设置 <code>CHENA_MCP_URL</code>。</p>
                   </div>
                 </div>
 

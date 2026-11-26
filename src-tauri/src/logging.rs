@@ -219,12 +219,59 @@ fn redactions() -> &'static [(regex::Regex, &'static str)] {
     })
 }
 
+/// 已确认的会话秘密（如 sudo 口令），用于输出脱敏。
+///
+/// 只在内存中保留最近若干条，避免命令回显把明文口令写进日志或 AI 回显。
+fn known_secrets() -> &'static Mutex<Vec<String>> {
+    static SECRETS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+    SECRETS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+const MAX_KNOWN_SECRETS: usize = 16;
+
+/// 登记一个需要在输出中遮蔽的秘密（过短的字符串会被忽略，避免误伤正常输出）。
+pub(crate) fn register_secret(secret: &str) {
+    let secret = secret.trim();
+    if secret.chars().count() < 6 {
+        return;
+    }
+    let mut list = known_secrets()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if list.iter().any(|item| item == secret) {
+        return;
+    }
+    if list.len() >= MAX_KNOWN_SECRETS {
+        list.remove(0);
+    }
+    list.push(secret.to_string());
+}
+
+fn mask_known_secrets(mut text: String) -> String {
+    let secrets = {
+        let list = known_secrets()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if list.is_empty() {
+            return text;
+        }
+        list.clone()
+    };
+    for secret in secrets {
+        if text.contains(&secret) {
+            text = text.replace(&secret, "[REDACTED]");
+        }
+    }
+    text
+}
+
 pub(crate) fn redact_text(text: &str) -> String {
-    redactions()
+    let redacted = redactions()
         .iter()
         .fold(text.to_string(), |current, (regex, replacement)| {
             regex.replace_all(&current, *replacement).into_owned()
-        })
+        });
+    mask_known_secrets(redacted)
 }
 
 fn pem_marker(line: &str, kind: &str) -> Option<(usize, usize)> {
@@ -722,6 +769,14 @@ mod tests {
         assert!(!output.contains("AKIAABCDEFGHIJKLMNOP"));
         assert!(output.contains("password=[REDACTED]"));
         assert!(output.contains("Bearer [REDACTED]"));
+    }
+
+    #[test]
+    fn registered_secret_is_masked_in_output() {
+        register_secret("S3cret-sudo-pass-2026");
+        let output = redact_text("回显: S3cret-sudo-pass-2026 已用于 sudo");
+        assert!(!output.contains("S3cret-sudo-pass-2026"));
+        assert!(output.contains("[REDACTED]"));
     }
 
     #[test]
