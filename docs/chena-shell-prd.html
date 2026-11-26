@@ -1,0 +1,1685 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chena-Shell — PRD</title>
+<style>
+  :root{
+    --bg:#0f1115; --surface:#161a22; --surface-2:#1c2230; --border:#2a3142;
+    --text:#d6dce8; --text-dim:#8893a8; --text-muted:#5c6678;
+    --accent:#4f8cff; --accent-2:#6aa7ff; --success:#3ecf8e; --warn:#ffb020;
+    --danger:#ff5656; --ai:#c77dff; --ai-bg:rgba(199,125,255,.1);
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px}
+  button{font-family:inherit;cursor:pointer}
+
+  /* ===== Top Bar ===== */
+  .topbar{
+    position:fixed;top:0;left:0;right:0;height:44px;z-index:50;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border);
+  }
+  .topbar .brand{display:flex;align-items:center;gap:10px;font-weight:600}
+  .topbar .brand .logo{
+    width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--accent),var(--ai));
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:12px;
+  }
+  .topbar .meta{font-size:12px;color:var(--text-dim)}
+  .topbar .modes{display:flex;gap:4px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)}
+  .topbar .modes button{
+    padding:5px 12px;border:0;background:transparent;color:var(--text-dim);
+    border-radius:5px;font-size:13px;transition:.15s;
+  }
+  .topbar .modes button.active{background:var(--surface-2);color:var(--text)}
+
+  /* ===== Layout ===== */
+  .app{height:calc(100vh - 44px);margin-top:44px;display:flex}
+  .col-left{flex:1.1;min-width:0;display:flex;flex-direction:column;padding:16px;gap:12px;overflow:auto}
+  .col-right{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--surface);border-left:1px solid var(--border)}
+
+  /* ===== Prototype frame ===== */
+  .proto{
+    background:#e5e7eb;border-radius:14px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.4);
+    display:flex;flex-direction:column;height:100%;min-height:560px;position:relative;color:#1f2937;
+  }
+  .proto .titlebar{
+    height:36px;background:#374151;display:flex;align-items:center;justify-content:space-between;padding:0 12px;
+  }
+  .proto .titlebar .dots{display:flex;gap:6px}
+  .proto .titlebar .dots span{width:12px;height:12px;border-radius:50%;display:inline-block}
+  .proto .titlebar .dots span.r{background:#ff5f57}.y{background:#febc2e}.g{background:#28c840}
+  .proto .titlebar .title{color:#e5e7eb;font-size:12px}
+  .proto .titlebar .menu{display:flex;gap:10px;color:#9ca3af;font-size:12px}
+
+  .proto-body{flex:1;display:flex;min-height:0;background:#1f2937;color:#e5e7eb}
+
+  /* Left nav - Session Manager */
+  .sess-nav{
+    width:200px;background:#111827;border-right:1px solid #374151;display:flex;flex-direction:column;
+  }
+  .sess-nav .sn-header{
+    display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #374151;
+  }
+  .sess-nav .sn-header h4{margin:0;font-size:12px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px}
+  .sess-nav .sn-header button{
+    width:22px;height:22px;border:0;background:#374151;color:#e5e7eb;border-radius:4px;font-size:14px;line-height:1;
+  }
+  .sess-nav .sn-search{
+    margin:8px 10px 4px;padding:6px 8px;border-radius:5px;border:1px solid #374151;background:#1f2937;color:#e5e7eb;
+    font-size:12px;outline:none;
+  }
+  .sess-list{flex:1;overflow-y:auto;padding:4px 6px}
+  .sess-item{
+    padding:7px 10px;border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;
+    margin-bottom:2px;position:relative;
+  }
+  .sess-item:hover{background:#1f2937}
+  .sess-item.active{background:#2563eb}.sess-item.active:hover{background:#2563eb}
+  .sess-item .sess-dot{width:8px;height:8px;border-radius:50%;background:#10b981;flex-shrink:0}
+  .sess-item .sess-dot.off{background:#6b7280}
+  .sess-item .sess-dot.busy{background:#f59e0b;animation:pulse 1.2s infinite}
+  .sess-item .sess-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sess-item .sess-host{font-size:11px;color:#9ca3af}
+  .sess-item .ai-badge{
+    position:absolute;top:4px;right:6px;font-size:9px;padding:1px 4px;border-radius:3px;
+    background:rgba(199,125,255,.25);color:#d8b4fe;border:1px solid rgba(199,125,255,.4);
+  }
+  .sess-empty{text-align:center;color:#6b7280;padding:20px;font-size:12px}
+
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* Main terminal area */
+  .term-main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .tab-bar{
+    height:34px;background:#111827;border-bottom:1px solid #374151;display:flex;align-items:flex-end;padding:0 4px;gap:2px;
+  }
+  .tab{
+    padding:6px 14px;font-size:12px;background:#1f2937;border-radius:6px 6px 0 0;cursor:pointer;
+    color:#9ca3af;display:flex;align-items:center;gap:6px;border:1px solid transparent;border-bottom:0;
+  }
+  .tab.active{background:#374151;color:#e5e7eb;border-color:#4b5563}
+  .tab .tab-dot{width:7px;height:7px;border-radius:50%;background:#10b981}
+  .tab .tab-close{opacity:.5}
+  .tab:hover .tab-close{opacity:1}
+  .tab-add{padding:6px 10px;color:#6b7280;font-size:14px;cursor:pointer;margin-left:auto}
+
+  .term-stage{flex:1;display:flex;flex-direction:column;background:#0b0e14;position:relative;min-height:0}
+  .term-output{flex:1;padding:12px 14px;font-family:"Cascadia Code","Fira Code","Consolas",monospace;font-size:13px;line-height:1.55;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+  .term-output .prompt{color:#34d399}
+  .term-output .cmd{color:#93c5fd}
+  .term-output .cmd.ai-cmd{color:#d8b4fe;background:rgba(199,125,255,.1);padding:0 2px;border-radius:2px}
+  .term-output .cmd.ai-cmd::before{content:"AI ";font-size:10px;color:#c77dff;margin-right:2px;background:rgba(199,125,255,.25);padding:0 3px;border-radius:2px}
+  .term-output .output{color:#d1d5db}
+  .term-output .error{color:#f87171}
+  .term-output .info{color:#9ca3af;font-style:italic}
+  .term-cursor{display:inline-block;width:8px;height:15px;background:#34d399;vertical-align:middle;animation:blink 1s infinite;margin-left:-2px}
+  @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+
+  /* Bottom panels */
+  .bottom-area{height:240px;border-top:1px solid #374151;display:flex;background:#111827}
+  .bp-tabs{
+    width:48px;background:#0b0e14;display:flex;flex-direction:column;padding:6px 0;gap:2px;border-right:1px solid #374151;
+  }
+  .bp-tab{
+    padding:8px 0;text-align:center;font-size:10px;color:#6b7280;cursor:pointer;border-left:2px solid transparent;
+    writing-mode:vertical-rl;text-orientation:mixed;transform:rotate(180deg);letter-spacing:1px;
+  }
+  .bp-tab.active{color:#93c5fd;border-left-color:#60a5fa;background:rgba(96,165,250,.06)}
+
+  .bp-content{flex:1;overflow:hidden}
+  .bp-pane{height:100%;display:none;overflow:auto}
+  .bp-pane.active{display:flex;flex-direction:column}
+
+  /* SFTP pane */
+  .sftp-pane{padding:10px;gap:8px;display:flex}
+  .sftp-col{flex:1;min-width:0;background:#0b0e14;border:1px solid #374151;border-radius:6px;display:flex;flex-direction:column}
+  .sftp-col .sc-head{
+    padding:6px 10px;border-bottom:1px solid #374151;font-size:12px;color:#9ca3af;
+    display:flex;align-items:center;gap:6px;
+  }
+  .sftp-col .sc-head input{
+    flex:1;background:transparent;border:0;color:#e5e7eb;font-size:12px;outline:none;
+  }
+  .sftp-col .sc-list{flex:1;overflow-y:auto;font-family:"Cascadia Code","Consolas",monospace;font-size:12px}
+  .sftp-col .sc-row{
+    padding:3px 10px;display:flex;gap:10px;border-bottom:1px solid #1f2937;
+  }
+  .sftp-col .sc-row:hover{background:#1f2937}
+  .sftp-col .sc-row .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sftp-col .sc-row .size{color:#6b7280;width:60px;text-align:right}
+  .sftp-col .sc-row .time{color:#6b7280;width:90px;text-align:right;font-size:11px}
+  .sftp-col .sc-row.dir .name::before{content:"📁 ";margin-right:2px}
+
+  /* AI activity pane */
+  .ai-pane{padding:10px;gap:8px;flex-direction:column}
+  .ai-activity{flex:1;overflow-y:auto}
+  .ai-item{
+    padding:8px 10px;background:rgba(199,125,255,.06);border-left:3px solid #c77dff;margin-bottom:6px;
+    border-radius:4px;font-size:12px;display:flex;gap:8px;align-items:flex-start;
+  }
+  .ai-item .ai-time{color:#6b7280;font-size:11px;flex-shrink:0;width:56px}
+  .ai-item .ai-content{flex:1}
+  .ai-item .ai-cmd-line{color:#d8b4fe;font-family:"Cascadia Code","Consolas",monospace;font-size:11px;background:rgba(0,0,0,.3);padding:2px 6px;border-radius:3px;margin:2px 0}
+  .ai-item .ai-tag{font-size:10px;padding:1px 5px;border-radius:3px;margin-left:4px}
+  .ai-item.ok .ai-tag{background:rgba(52,211,153,.2);color:#6ee7b7}
+  .ai-item.err .ai-tag{background:rgba(248,113,113,.2);color:#fca5a5}
+  .ai-item.waiting{border-left-color:#f59e0b;background:rgba(245,158,11,.08)}
+  .ai-item.waiting .ai-content::after{content:" ⏳"}
+  .ai-item.blocked{border-left-color:#ef4444;background:rgba(239,68,68,.08)}
+  .ai-item.blocked .ai-content::after{content:" ✖ 已拦截"}
+
+  .ai-settings{
+    padding:8px 10px;background:#0b0e14;border:1px solid #374151;border-radius:6px;font-size:12px;
+  }
+  .ai-settings .as-row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .ai-settings .as-row label{color:#9ca3af;flex:1}
+  .ai-settings .as-row .switch{
+    width:34px;height:18px;background:#374151;border-radius:9px;position:relative;cursor:pointer;transition:.2s;
+  }
+  .ai-settings .as-row .switch::after{
+    content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;background:#9ca3af;border-radius:50%;transition:.2s;
+  }
+  .ai-settings .as-row .switch.on{background:#4f46e5}
+  .ai-settings .as-row .switch.on::after{left:18px;background:#fff}
+
+  /* Confirmation dialog */
+  .modal-overlay{
+    position:absolute;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:20;
+  }
+  .modal-overlay.show{display:flex}
+  .modal{
+    background:#1f2937;border:1px solid #4b5563;border-radius:10px;min-width:380px;max-width:480px;padding:20px;
+  }
+  .modal h3{margin:0 0 8px;font-size:15px;color:#fca5a5;display:flex;align-items:center;gap:8px}
+  .modal p{margin:0 0 10px;font-size:13px;color:#d1d5db}
+  .modal pre{
+    background:#0b0e14;padding:8px 10px;border-radius:5px;font-size:12px;color:#fca5a5;
+    font-family:"Cascadia Code","Consolas",monospace;margin:0 0 14px;white-space:pre-wrap;
+  }
+  .modal .modal-actions{display:flex;gap:8px;justify-content:flex-end}
+  .modal button{
+    padding:7px 16px;border-radius:6px;font-size:13px;border:1px solid transparent;
+  }
+  .modal .btn-cancel{background:#374151;color:#e5e7eb;border-color:#4b5563}
+  .modal .btn-allow{background:#991b1b;color:#fff;border-color:#ef4444}
+  .modal .btn-allow-once{background:#4f46e5;color:#fff;border-color:#6366f1}
+
+  /* Welcome empty state */
+  .welcome{
+    position:absolute;inset:0;background:#0b0e14;display:none;flex-direction:column;align-items:center;justify-content:center;
+    color:#9ca3af;text-align:center;gap:16px;
+  }
+  .welcome.show{display:flex}
+  .welcome .w-icon{font-size:48px;opacity:.3}
+  .welcome h2{margin:0;color:#e5e7eb;font-size:18px;font-weight:500}
+  .welcome p{margin:0;font-size:13px;max-width:320px}
+  .welcome .w-actions{display:flex;gap:10px}
+  .welcome button{
+    padding:8px 20px;border-radius:6px;font-size:13px;border:1px solid transparent;
+  }
+  .welcome .primary{background:#2563eb;color:#fff;border-color:#3b82f6}
+  .welcome .secondary{background:#1f2937;color:#e5e7eb;border-color:#374151}
+
+  /* Session config dialog */
+  .cfg-dialog{
+    position:absolute;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:25;
+  }
+  .cfg-dialog.show{display:flex}
+  .cfg{
+    background:#1f2937;border:1px solid #4b5563;border-radius:10px;width:460px;max-height:85%;overflow:auto;padding:20px;
+  }
+  .cfg h3{margin:0 0 14px;font-size:15px;color:#e5e7eb}
+  .cfg .cfg-row{margin-bottom:12px}
+  .cfg .cfg-row label{display:block;font-size:12px;color:#9ca3af;margin-bottom:4px}
+  .cfg .cfg-row input,.cfg .cfg-row select{
+    width:100%;padding:7px 10px;background:#0b0e14;border:1px solid #374151;border-radius:5px;color:#e5e7eb;font-size:13px;outline:none;
+  }
+  .cfg .cfg-row input:focus,.cfg .cfg-row select:focus{border-color:#60a5fa}
+  .cfg .cfg-row .cfg-2col{display:flex;gap:10px}
+  .cfg .cfg-row .cfg-2col > div{flex:1}
+  .cfg .cfg-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+  .cfg button{padding:7px 16px;border-radius:6px;font-size:13px}
+  .cfg .btn-save{background:#2563eb;color:#fff;border:1px solid #3b82f6}
+  .cfg .btn-cancel{background:#374151;color:#e5e7eb;border:1px solid #4b5563}
+  .cfg .cfg-tabbar{display:flex;gap:0;margin-bottom:14px;border-bottom:1px solid #374151}
+  .cfg .cfg-tab{padding:8px 14px;color:#9ca3af;cursor:pointer;font-size:12px;border-bottom:2px solid transparent}
+  .cfg .cfg-tab.active{color:#93c5fd;border-bottom-color:#60a5fa}
+  .cfg .cfg-tab-content{display:none}
+  .cfg .cfg-tab-content.active{display:block}
+
+  /* AI callout banner (top of terminal) */
+  .ai-banner{
+    position:absolute;top:36px;left:0;right:0;background:rgba(199,125,255,.15);
+    border-bottom:1px solid rgba(199,125,255,.4);padding:6px 14px;font-size:12px;color:#d8b4fe;
+    display:flex;align-items:center;gap:8px;
+  }
+  .ai-banner::before{content:"🤖"}
+
+  /* Connection state indicator */
+  .conn-banner{
+    position:absolute;top:36px;left:0;right:0;background:rgba(248,113,113,.15);
+    border-bottom:1px solid rgba(248,113,113,.4);padding:6px 14px;font-size:12px;color:#fca5a5;
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+  }
+  .conn-banner.connecting{background:rgba(96,165,250,.12);border-color:rgba(96,165,250,.35);color:#93c5fd}
+  .conn-banner button{padding:4px 12px;border-radius:4px;background:#374151;color:#e5e7eb;border:1px solid #4b5563;font-size:11px}
+
+  /* ===== Right side — PRD ===== */
+  .prd-tabs{
+    display:flex;border-bottom:1px solid var(--border);padding:0 20px;background:var(--surface-2);
+  }
+  .prd-tabs .ptab{
+    padding:13px 18px;color:var(--text-dim);cursor:pointer;font-size:13px;border-bottom:2px solid transparent;
+  }
+  .prd-tabs .ptab.active{color:var(--text);border-bottom-color:var(--accent)}
+  .prd-tabs .ptab:hover{color:var(--text)}
+  .prd-body{flex:1;overflow-y:auto;padding:24px 28px}
+
+  .prd-body h1{font-size:22px;margin:0 0 4px}
+  .prd-body h2{font-size:16px;margin:28px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .prd-body h3{font-size:14px;margin:20px 0 8px;color:var(--accent-2)}
+  .prd-body p{margin:0 0 10px;line-height:1.7;color:var(--text)}
+  .prd-body table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0}
+  .prd-body th,.prd-body td{padding:8px 10px;border:1px solid var(--border);text-align:left}
+  .prd-body th{background:var(--surface-2);color:var(--text-dim);font-weight:500}
+  .prd-body code{background:var(--surface-2);padding:1px 6px;border-radius:3px;font-size:12px;color:var(--accent-2);font-family:"Cascadia Code","Consolas",monospace}
+  .prd-body ul{margin:6px 0 12px;padding-left:20px;color:var(--text)}
+  .prd-body li{margin-bottom:4px;line-height:1.6}
+  .prd-body .assumption{background:#2d2610;border-left:3px solid #f59e0b;padding:8px 12px;margin:10px 0;border-radius:0 5px 5px 0;font-size:12px;color:#fbbf24}
+  .prd-body .assumption strong{color:#fbbf24}
+  .prd-body .tbd{background:#2d1a1a;border-left:3px solid #ef4444;padding:8px 12px;margin:10px 0;border-radius:0 5px 5px 0;font-size:12px;color:#fca5a5}
+  .prd-body .tbd strong{color:#fca5a5}
+
+  /* Feature section linked to prototype */
+  .feature-section{
+    border-left:3px solid transparent;padding-left:14px;margin:18px 0;transition:border-color .3s,background .3s;
+  }
+  .feature-section.focused{border-color:var(--accent);background:rgba(79,140,255,.06);padding-top:8px;padding-bottom:8px;border-radius:0 6px 6px 0}
+  .feature-section .feature-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .feature-section .feature-id{
+    background:var(--surface-2);color:var(--accent-2);padding:2px 8px;border-radius:4px;font-size:11px;
+    font-family:"Cascadia Code","Consolas",monospace;
+  }
+  .feature-section h3{margin:0}
+
+  .proto-link{cursor:pointer;outline:none}
+  .proto-link:hover{text-decoration:underline;color:var(--accent-2)}
+
+  /* Link indicator */
+  .link-hint{
+    position:fixed;bottom:16px;right:16px;background:var(--surface-2);border:1px solid var(--border);
+    padding:8px 14px;border-radius:8px;font-size:12px;color:var(--text-dim);z-index:100;
+    opacity:0;transition:opacity .3s;pointer-events:none;
+  }
+  .link-hint.show{opacity:1}
+
+  /* ============ Text mode ============ */
+  body.text-mode .app{flex-direction:column;overflow:auto;height:auto;margin-top:44px}
+  body.text-mode .col-left{flex:none;width:100%;height:auto;min-height:auto;max-width:960px;margin:0 auto;padding:24px}
+  body.text-mode .col-right{display:none}
+  body.text-mode .topbar .modes button:first-child::before{content:"📄 "}
+  body.text-mode .topbar .modes button:last-child::before{content:"🖥 "}
+  body.text-mode .topbar .modes button:first-child.active::before{content:""}
+  body.text-mode .topbar .modes button:last-child.active::before{content:""}
+  body.text-mode{background:var(--bg)}
+
+  /* Print */
+  @media print{
+    .topbar{position:static;background:#fff;color:#000;border-bottom:1px solid #ccc}
+    .col-left,.col-right{display:none}
+    body.text-mode .col-left{display:block}
+    body,body.text-mode{background:#fff;color:#000}
+    .prd-body{padding:0}
+    .prd-body h2,.prd-body h3{color:#000;border-color:#ccc}
+    .prd-body th{background:#f0f0f0;color:#000}
+    .prd-body th,.prd-body td{border-color:#ccc}
+    .prd-body code{background:#f5f5f5;color:#333}
+    .assumption{background:#fffbe6!important;border-color:#faad14!important;color:#666!important}
+    .tbd{background:#fff1f0!important;border-color:#f5222d!important;color:#666!important}
+    .feature-section.focused{border-color:#4f8cff!important;background:#f0f5ff!important}
+    .link-hint,.proto-link{display:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <div class="logo">SF</div>
+    <span>Chena-Shell</span>
+    <span class="meta">PRD · v0.1 · 2026-11-18</span>
+  </div>
+  <div class="modes">
+    <button id="btn-split" class="active">分屏视图</button>
+    <button id="btn-text">文档视图</button>
+  </div>
+</div>
+
+<div class="app">
+  <!-- ================ LEFT: Prototype ================ -->
+  <div class="col-left">
+    <div class="proto" id="proto-root">
+      <div class="titlebar">
+        <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+        <div class="title">Chena-Shell — devbox-01 (root@192.168.1.100:22)</div>
+        <div class="menu">文件 编辑 查看 终端 工具 帮助</div>
+      </div>
+
+      <div class="proto-body">
+        <!-- LEFT NAV -->
+        <div class="sess-nav" data-link="feature-fm-session">
+          <div class="sn-header">
+            <h4>会话管理器</h4>
+            <button onclick="openCfg()">+</button>
+          </div>
+          <input class="sn-search" placeholder="搜索会话...">
+          <div class="sess-list" id="sess-list">
+            <div class="sess-item active" data-link="feature-fm-session">
+              <span class="sess-dot busy"></span>
+              <span class="sess-name">devbox-01</span>
+              <span class="ai-badge">AI</span>
+            </div>
+            <div class="sess-item" data-link="feature-fm-session">
+              <span class="sess-dot"></span>
+              <span class="sess-name">prod-web-02</span>
+            </div>
+            <div class="sess-item" data-link="feature-fm-session">
+              <span class="sess-dot off"></span>
+              <span class="sess-name">test-db-01</span>
+              <span class="sess-host">已断开</span>
+            </div>
+            <div class="sess-item" data-link="feature-fm-session">
+              <span class="sess-dot off"></span>
+              <span class="sess-name">raspberry-pi</span>
+            </div>
+            <div class="sess-item" data-link="feature-fm-session">
+              <span class="sess-dot"></span>
+              <span class="sess-name">k8s-master</span>
+              <span class="ai-badge">AI</span>
+            </div>
+            <div class="sess-item" data-link="feature-fm-session">
+              <span class="sess-dot off"></span>
+              <span class="sess-name">跳板机</span>
+              <span class="sess-host">10.0.0.1</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- TERMINAL MAIN -->
+        <div class="term-main" data-link="feature-terminal">
+          <div class="tab-bar" style="justify-content:flex-start">
+            <div class="tab active" data-link="feature-ai-attach" style="position:relative">
+              <span class="tab-dot"></span>devbox-01
+              <span style="margin-left:4px;color:#10b981;font-size:10px">👤</span>
+              <span style="margin-left:2px;color:#c77dff;font-size:10px">🤖</span>
+              <span style="margin-left:4px;font-size:9px;color:#c77dff;background:rgba(199,125,255,.15);padding:1px 4px;border-radius:3px">Trae attach 中</span>
+              <button title="踢出 AI" style="margin-left:auto;background:#991b1b;color:#fff;border:0;border-radius:3px;font-size:9px;padding:1px 5px;cursor:pointer;flex-shrink:0">✕ 踢出 AI</button>
+              <span class="tab-close">✕</span>
+            </div>
+            <div class="tab" style="position:relative">
+              <span class="tab-dot"></span>prod-web-02
+              <span style="margin-left:4px;color:#10b981;font-size:10px">👤</span>
+              <span class="tab-close" style="margin-left:auto">✕</span>
+            </div>
+            <div class="tab" style="color:#6b7280;position:relative">
+              <span class="tab-dot" style="background:#6b7280"></span>test-db-01
+              <span class="tab-close" style="margin-left:auto">✕</span>
+            </div>
+            <div class="tab-add" title="新建标签页">+</div>
+          </div>
+
+          <div class="term-stage">
+            <!-- AI banner -->
+            <div class="ai-banner" id="ai-banner">AI 调用中 — devbox-01 上有一个进行中的 AI 操作</div>
+
+            <div class="term-output" data-link="feature-terminal">
+<span class="info">Chena-Shell 1.0 — 连接 root@192.168.1.100:22</span>
+<span class="info">Last login: Tue Nov 18 10:32:11 2026 from 192.168.1.50</span>
+<span class="prompt">root@devbox-01:~# </span><span class="cmd">ls -la</span>
+<span class="output">total 32
+drwxr-xr-x  5 root root 4096 Nov 15 09:22 .
+drwxr-xr-x 24 root root 4096 Nov 10 21:01 ..
+-rw-------  1 root root  220 Oct 28 11:38 .bash_history
+-rw-------  1 root root  312 Oct 28 11:38 .lesshst
+drwxr-xr-x  3 root root 4096 Nov 10 21:02 .ssh
+-rw-r--r--  1 root root  121 Nov 12 14:15 deploy.sh
+drwxrwxr-x  2 root root 4096 Nov 18 10:12 logs
+drwxr-xr-x  4 root root 4096 Nov 10 21:03 projects</span>
+<span class="prompt">root@devbox-01:~# </span><span class="cmd ai-cmd">cat /etc/os-release | head -n 3</span>
+<span class="output">PRETTY_NAME="Ubuntu 24.04.3 LTS"</span>
+<span class="prompt">root@devbox-01:~# </span><span class="cmd ai-cmd">df -h /</span>
+<span class="output">Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        40G   18G   22G  45% /</span>
+<span class="prompt">root@devbox-01:~# </span><span class="cmd">tail -f /var/log/syslog</span>
+<span class="output">Nov 18 10:34:22 devbox-01 CRON[2401]: (root) CMD (/usr/local/bin/backup.sh)
+Nov 18 10:34:23 devbox-01 CRON[2401]: (root) CMD END
+<span class="info">[Ctrl+C 退出 tail]</span></span>
+<span class="prompt">root@devbox-01:~# </span><span class="cmd ai-cmd">systemctl status nginx --no-pager</span>
+<span class="output">● nginx.service - A high performance web server
+     Active: <span style="color:#34d399">active (running)</span> since Tue 2026-11-18 08:00:03 EST; 2h 34min ago
+       Docs: https://nginx.org/en/docs/
+   Main PID: 1246 (nginx)</span>
+<span class="prompt">root@devbox-01:~# </span><span class="term-cursor"></span>
+            </div>
+          </div>
+
+          <!-- BOTTOM PANELS -->
+          <div class="bottom-area" data-link="feature-resource-monitor">
+            <div class="bp-tabs">
+              <div class="bp-tab" data-link="feature-resource-monitor">资源</div>
+              <div class="bp-tab active" data-link="feature-sftp">SFTP</div>
+              <div class="bp-tab" data-link="feature-ai-attach">AI 活动</div>
+              <div class="bp-tab" data-link="feature-fm-session">端口转发</div>
+            </div>
+
+            <div class="bp-content">
+
+              <!-- RESOURCE MONITOR PANE (FinalShell 风格) -->
+              <div class="bp-pane" style="padding:10px;gap:10px" data-link="feature-resource-monitor">
+                <div style="display:flex;gap:10px;flex:1">
+                  <!-- CPU Gauge + mini sparkline -->
+                  <div style="flex:1;background:#0b0e14;border:1px solid #374151;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9ca3af">
+                      <span>🖥 CPU</span><span style="color:#34d399;font-weight:600">34.2%</span>
+                    </div>
+                    <div style="height:6px;background:#1f2937;border-radius:3px;overflow:hidden;position:relative">
+                      <div style="width:34.2%;height:100%;background:linear-gradient(90deg,#34d399,#60a5fa);border-radius:3px;transition:width .6s"></div>
+                    </div>
+                    <!-- SVG sparkline -->
+                    <svg width="100%" height="40" viewBox="0 0 180 40" preserveAspectRatio="none">
+                      <polyline points="0,28 10,25 20,22 30,26 40,18 50,20 60,15 70,22 80,12 90,16 100,20 110,14 120,18 130,22 140,19 150,24 160,16 170,21 180,18" fill="none" stroke="#60a5fa" stroke-width="1.5"/>
+                      <polyline points="0,34 10,32 20,30 30,33 40,27 50,29 60,25 70,31 80,22 90,26 100,29 110,24 120,27 130,31 140,28 150,32 160,26 170,30 180,27" fill="none" stroke="#34d399" stroke-width="1" stroke-dasharray="2,2"/>
+                    </svg>
+                    <div style="font-size:10px;color:#6b7280;display:flex;justify-content:space-between">
+                      <span>User 12% · Sys 4%</span><span>8 核</span>
+                    </div>
+                  </div>
+
+                  <!-- MEMORY -->
+                  <div style="flex:1;background:#0b0e14;border:1px solid #374151;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9ca3af">
+                      <span>💾 内存</span><span style="color:#60a5fa;font-weight:600">48.1%</span>
+                    </div>
+                    <div style="height:6px;background:#1f2937;border-radius:3px;overflow:hidden">
+                      <div style="width:48.1%;height:100%;background:linear-gradient(90deg,#60a5fa,#a78bfa);border-radius:3px;transition:width .6s"></div>
+                    </div>
+                    <svg width="100%" height="40" viewBox="0 0 180 40" preserveAspectRatio="none">
+                      <polyline points="0,18 10,20 20,16 30,22 40,19 50,17 60,23 70,20 80,18 90,21 100,19 110,17 120,22 130,20 140,18 150,21 160,19 170,17 180,20" fill="none" stroke="#a78bfa" stroke-width="1.5"/>
+                    </svg>
+                    <div style="font-size:10px;color:#6b7280;display:flex;justify-content:space-between">
+                      <span>3.8G / 8G</span><span>Swap: 0%</span>
+                    </div>
+                  </div>
+
+                  <!-- DISK -->
+                  <div style="flex:1;background:#0b0e14;border:1px solid #374151;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9ca3af">
+                      <span>💿 磁盘 /</span><span style="color:#34d399;font-weight:600">45%</span>
+                    </div>
+                    <div style="height:6px;background:#1f2937;border-radius:3px;overflow:hidden">
+                      <div style="width:45%;height:100%;background:linear-gradient(90deg,#34d399,#10b981);border-radius:3px"></div>
+                    </div>
+                    <div style="font-size:10px;color:#6b7280;line-height:1.7;margin-top:4px">
+                      <div>/dev/vda1 &nbsp; 18G / 40G</div>
+                      <div>/dev/vda2 &nbsp; 8G / 20G</div>
+                      <div style="color:#fbbf24">⚠ /dev/vda3 &nbsp; 8.2G / 10G (82%)</div>
+                    </div>
+                  </div>
+
+                  <!-- NETWORK -->
+                  <div style="flex:1;background:#0b0e14;border:1px solid #374151;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:6px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:#9ca3af">
+                      <span>🌐 网络 eth0</span><span style="color:#34d399;font-weight:600">↓ 12.4 KB/s</span>
+                    </div>
+                    <svg width="100%" height="40" viewBox="0 0 180 40" preserveAspectRatio="none">
+                      <polyline points="0,30 10,22 20,18 30,28 40,12 50,25 60,20 70,14 80,24 90,16 100,22 110,18 120,26 130,14 140,20 150,16 160,22 170,18 180,15" fill="none" stroke="#34d399" stroke-width="1.5"/>
+                      <polyline points="0,10 10,14 20,12 30,10 40,18 50,8 60,12 70,14 80,10 90,12 100,14 110,10 120,12 130,16 140,8 150,14 160,12 170,10 180,14" fill="none" stroke="#f87171" stroke-width="1" stroke-dasharray="2,2"/>
+                    </svg>
+                    <div style="font-size:10px;color:#6b7280;display:flex;justify-content:space-between">
+                      <span>↑ 2.1 KB/s</span><span>Total: 1.2 GB</span>
+                    </div>
+                  </div>
+
+                  <!-- LOAD AVG + TOP PROCESSES -->
+                  <div style="flex:0 0 180px;background:#0b0e14;border:1px solid #374151;border-radius:6px;padding:10px;display:flex;flex-direction:column;gap:4px">
+                    <div style="font-size:11px;color:#9ca3af">⚡ Load Average</div>
+                    <div style="font-size:18px;font-weight:700;color:#34d399">0.42</div>
+                    <div style="font-size:10px;color:#6b7280">1m · 5m · 15m</div>
+                    <div style="font-size:10px;color:#6b7280">0.42 · 0.38 · 0.31</div>
+                    <div style="border-top:1px solid #1f2937;margin:6px 0"></div>
+                    <div style="font-size:10px;color:#9ca3af">🔥 TOP CPU</div>
+                    <div style="font-size:10px;color:#e5e7eb;font-family:'Cascadia Code','Consolas',monospace;line-height:1.6">
+                      <div><span style="color:#6b7280">1246</span> nginx &nbsp;<span style="color:#34d399">2.1%</span></div>
+                      <div><span style="color:#6b7280">2401</span> crond &nbsp;<span style="color:#34d399">1.2%</span></div>
+                      <div><span style="color:#6b7280">892</span> systemd &nbsp;<span style="color:#6b7280">0.5%</span></div>
+                      <div><span style="color:#6b7280">1</span> init &nbsp;<span style="color:#6b7280">0.1%</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;font-size:11px;color:#6b7280;padding:4px 2px 0">
+                  <span>采样间隔：2 秒</span>
+                  <span>·</span>
+                  <span>历史：最近 5 分钟窗口（共 300 个点）</span>
+                  <span>·</span>
+                  <span style="color:#34d399">● 正常</span>
+                  <span>·</span>
+                  <span>自动刷新中</span>
+                </div>
+              </div>
+
+              <!-- SFTP Pane -->
+              <div class="bp-pane active sftp-pane" data-link="feature-sftp">
+                <div class="sftp-col">
+                  <div class="sc-head">
+                    💻 本地 <input value="C:\Users\demo\Projects">
+                  </div>
+                  <div class="sc-list">
+                    <div class="sc-row dir"><span class="name">..</span><span class="size">—</span><span class="time"></span></div>
+                    <div class="sc-row dir"><span class="name">myapp</span><span class="size">—</span><span class="time">2026-11-18</span></div>
+                    <div class="sc-row"><span class="name">deploy.sh</span><span class="size">1.2 KB</span><span class="time">11-15 14:22</span></div>
+                    <div class="sc-row"><span class="name">config.yaml</span><span class="size">342 B</span><span class="time">11-14 20:01</span></div>
+                    <div class="sc-row"><span class="name">backup.tar.gz</span><span class="size">24.6 MB</span><span class="time">11-12 09:30</span></div>
+                    <div class="sc-row dir"><span class="name">node_modules</span><span class="size">—</span><span class="time">2026-10-28</span></div>
+                  </div>
+                </div>
+                <div class="sftp-col">
+                  <div class="sc-head">
+                    📡 远端 devbox-01 <input value="/root/projects">
+                  </div>
+                  <div class="sc-list">
+                    <div class="sc-row dir"><span class="name">..</span><span class="size">—</span><span class="time"></span></div>
+                    <div class="sc-row dir"><span class="name">.</span><span class="size">—</span><span class="time">2026-11-10</span></div>
+                    <div class="sc-row dir"><span class="name">myapp</span><span class="size">—</span><span class="time">2026-11-18</span></div>
+                    <div class="sc-row"><span class="name">deploy.sh</span><span class="size">1.2 KB</span><span class="time">11-15 09:22</span></div>
+                    <div class="sc-row"><span class="name">config.yaml</span><span class="size">342 B</span><span class="time">11-14 12:01</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- AI Activity Pane -->
+              <div class="bp-pane ai-pane" data-link="feature-ai-attach" style="padding:0">
+                <div style="padding:6px 10px;border-bottom:1px solid #374151;background:#0b0e14;font-size:11px;color:#9ca3af;display:flex;justify-content:space-between;align-items:center">
+                  <span>devbox-01 当前状态：<span style="color:#d8b4fe">🤖 Trae attach 中</span> &nbsp;·&nbsp; 人类输入缓冲中（42/512 字节）</span>
+                  <span style="color:#6b7280">🔒 token: tk_xyz789</span>
+                </div>
+                <div class="ai-activity" style="flex:1">
+                  <div style="padding:6px 10px;background:rgba(79,70,229,.1);border-left:3px solid #4f46e5;font-size:11px;color:#a5b4fc;margin-bottom:4px;display:flex;gap:8px;align-items:center">
+                    <span style="color:#6b7280">10:32:15</span>
+                    <span>🤖 <strong>Trae attach 了 devbox-01</strong> — 原因："nginx 502 排查"</span>
+                  </div>
+                  <div class="ai-item ok">
+                    <span class="ai-time">10:32:18</span>
+                    <div class="ai-content">
+                      AI 执行了 <span class="ai-cmd-line">systemctl status nginx --no-pager</span>
+                      nginx 未运行 <span class="ai-tag">成功</span>
+                    </div>
+                  </div>
+                  <div class="ai-item ok">
+                    <span class="ai-time">10:32:21</span>
+                    <div class="ai-content">
+                      AI 执行了 <span class="ai-cmd-line">journalctl -u nginx -n 50 --no-pager</span>
+                      发现 listen 端口配置错误 <span class="ai-tag">成功</span>
+                    </div>
+                  </div>
+                  <div class="ai-item ok">
+                    <span class="ai-time">10:34:55</span>
+                    <div class="ai-content">
+                      AI 执行了 <span class="ai-cmd-line">sed -i 's/listen 8080/listen 80/' /etc/nginx/sites-enabled/default</span>
+                      配置已修复 <span class="ai-tag">成功</span>
+                    </div>
+                  </div>
+                  <div class="ai-item ok">
+                    <span class="ai-time">10:35:10</span>
+                    <div class="ai-content">
+                      AI 执行了 <span class="ai-cmd-line">nginx -t && systemctl restart nginx</span>
+                      nginx 成功重启 <span class="ai-tag">成功</span>
+                    </div>
+                  </div>
+                  <div class="ai-item waiting">
+                    <span class="ai-time">10:35:12</span>
+                    <div class="ai-content">
+                      Trae 准备 detach — 原因："搞定了，nginx.conf 里 listen 端口写错了，已修复"
+                    </div>
+                  </div>
+                </div>
+                <div class="ai-settings">
+                  <div class="as-row">
+                    <label>AI 命令需要确认（危险命令白名单外）</label>
+                    <div class="switch on"></div>
+                  </div>
+                  <div class="as-row">
+                    <label>允许 AI 执行后台/交互式命令</label>
+                    <div class="switch"></div>
+                  </div>
+                  <div class="as-row">
+                    <label>跨会话共享 AI 能力</label>
+                    <div class="switch on"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Port Forwarding pane (mock) -->
+              <div class="bp-pane" style="padding:14px;gap:8px" data-link="feature-fm-session">
+                <div style="font-size:12px;color:#9ca3af;margin-bottom:8px">端口转发（P1）</div>
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;gap:8px;padding:6px 10px;background:#0b0e14;border-radius:5px;font-size:12px">
+                    <span style="color:#10b981">●</span> Local :3306 → 127.0.0.1:3306 (devbox-01)
+                  </div>
+                  <div style="display:flex;gap:8px;padding:6px 10px;background:#0b0e14;border-radius:5px;font-size:12px">
+                    <span style="color:#10b981">●</span> Local :8080 → 127.0.0.1:80 (prod-web-02)
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CONNECTION / MODAL OVERLAY -->
+          <div class="modal-overlay" id="confirm-modal">
+            <div class="modal">
+              <h3>⚠️ AI 命令需要确认</h3>
+              <p>Chena-Shell 检测到 AI 正在尝试执行以下命令，该命令在默认安全策略下需要用户确认：</p>
+              <pre>apt-get update && apt-get -y install htop</pre>
+              <div style="font-size:12px;color:#9ca3af;margin-bottom:14px">
+                命令来源：Trae AI Agent &nbsp;|&nbsp; 会话：devbox-01 &nbsp;|&nbsp; 风险等级：中
+              </div>
+              <div class="modal-actions">
+                <button class="btn-cancel" onclick="hideConfirm()">拒绝</button>
+                <button class="btn-allow-once" onclick="hideConfirm()">本次允许</button>
+                <button class="btn-allow" onclick="hideConfirm()">永久允许此类型</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Welcome empty state -->
+          <div class="welcome" id="welcome-empty">
+            <div class="w-icon">🔑</div>
+            <h2>没有活跃的 SSH 会话</h2>
+            <p>创建你的第一个会话，或者让 AI agent 自动发起连接</p>
+            <div class="w-actions">
+              <button class="primary" onclick="openCfg()">新建会话</button>
+              <button class="secondary">导入已有会话</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SESSION CONFIG DIALOG -->
+      <div class="cfg-dialog" id="cfg-dialog">
+        <div class="cfg">
+          <h3>新建 SSH 会话</h3>
+          <div class="cfg-tabbar">
+            <div class="cfg-tab active" onclick="switchCfgTab(this,'cfg-basic')">基础</div>
+            <div class="cfg-tab" onclick="switchCfgTab(this,'cfg-auth')">认证</div>
+            <div class="cfg-tab" onclick="switchCfgTab(this,'cfg-adv')">高级</div>
+            <div class="cfg-tab" onclick="switchCfgTab(this,'cfg-ai')">AI 权限</div>
+          </div>
+          <div class="cfg-tab-content active" id="cfg-basic">
+            <div class="cfg-row">
+              <label>会话名称</label>
+              <input value="devbox-01">
+            </div>
+            <div class="cfg-row">
+              <label>主机</label>
+              <input value="192.168.1.100">
+            </div>
+            <div class="cfg-row">
+              <div class="cfg-2col">
+                <div><label>端口</label><input value="22"></div>
+                <div><label>用户名</label><input value="root"></div>
+              </div>
+            </div>
+            <div class="cfg-row">
+              <label>协议版本</label>
+              <select><option>SSH 2.0 (默认)</option><option>SSH 1.0 (不推荐)</option></select>
+            </div>
+          </div>
+          <div class="cfg-tab-content" id="cfg-auth">
+            <div class="cfg-row">
+              <label>认证方式</label>
+              <select><option>密码 + 私钥（推荐）</option><option>仅密码</option><option>仅私钥</option><option>SSH Agent</option></select>
+            </div>
+            <div class="cfg-row">
+              <label>私钥路径</label>
+              <input value="C:\Users\demo\.ssh\id_ed25519">
+            </div>
+            <div class="cfg-row">
+              <label>密码（可选，本地加密存储）</label>
+              <input type="password" placeholder="••••••••">
+            </div>
+          </div>
+          <div class="cfg-tab-content" id="cfg-adv">
+            <div class="cfg-row">
+              <label>Keepalive 间隔（秒）</label>
+              <input value="30">
+            </div>
+            <div class="cfg-row">
+              <label>Shell</label>
+              <input value="/bin/bash">
+            </div>
+            <div class="cfg-row">
+              <label>自动重连</label>
+              <select><option>启用（最多 5 次）</option><option>禁用</option><option>无限重连</option></select>
+            </div>
+          </div>
+          <div class="cfg-tab-content" id="cfg-ai">
+            <div class="cfg-row">
+              <label>允许 AI 在本会话执行命令</label>
+              <select><option>是 — 按全局安全策略</option><option>是 — 全部放行（不推荐）</option><option>否 — AI 无法接入此会话</option></select>
+            </div>
+            <div class="cfg-row">
+              <label>AI 能调用文件传输</label>
+              <select><option>是 — 可读可写</option><option>仅下载</option><option>仅上传</option><option>禁用</option></select>
+            </div>
+            <div class="cfg-row">
+              <label>自定义拦截命令（正则，每行一条）</label>
+              <input placeholder="例如：rm -rf /\*">
+            </div>
+          </div>
+          <div class="cfg-actions">
+            <button class="btn-cancel" onclick="closeCfg()">取消</button>
+            <button class="btn-save">保存并连接</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================ RIGHT: PRD Content ================ -->
+  <div class="col-right">
+    <div class="prd-tabs">
+      <div class="ptab active" onclick="switchPrdTab(this,'prd-overview')">概览</div>
+      <div class="ptab" onclick="switchPrdTab(this,'prd-detail')">功能详情</div>
+      <div class="ptab" onclick="switchPrdTab(this,'prd-rules')">共享规则</div>
+      <div class="ptab" onclick="switchPrdTab(this,'prd-open')">待对齐</div>
+    </div>
+    <div class="prd-body">
+
+      <!-- ============ OVERVIEW ============ -->
+      <div id="prd-overview">
+
+        <h1>Chena-Shell — 产品需求文档</h1>
+        <p style="color:var(--text-dim);font-size:12px;margin-bottom:20px">桌面应用 · 开发者工具 · 同时面向人类用户和 AI agent</p>
+
+        <h2>1. 背景与问题</h2>
+
+        <p>开发者日常需要 SSH 到多台主机执行命令、传输文件。现有的 SSH 客户端（Xshell、PuTTY、Windows Terminal）都只服务人类用户，无法被 AI agent 以统一方式调用。与此同时，已有 AI SSH 工具（如当前 TRAE 的 persistent-ssh-terminal）虽然具备命令执行能力，但 <strong>没有图形化界面</strong>、<strong>文件传输靠独立工具</strong>、<strong>AI 做了什么人类看不见</strong>——用户完全失去对远程会话的可见性和控制权。</p>
+
+        <p>Chena-Shell 的核心产品判断：<strong>把 SSH 客户端做成一个 AI 友好的"双入口"产品</strong>——人类用户打开 GUI 直接操作，AI agent 通过统一接口调用同一套底层能力。两边的活动在同一个界面里可见、可控、可追溯。</p>
+
+        <h2>2. 产品契约</h2>
+
+        <table>
+          <tr><th style="width:160px">项</th><th>决策</th></tr>
+          <tr><td>主用户</td><td>Windows 上的开发者，同时需要手动 SSH 和让 AI agent 执行远程操作</td></tr>
+          <tr><td>核心工作</td><td>管理多台 SSH 主机、交互执行命令、传输文件；同时让 AI agent 调用同一套 SSH 能力，所有 AI 动作用户可见；<strong>会话控制权可在人类 ↔ AI 之间双向移交</strong></td></tr>
+          <tr><td>起点</td><td>人类：打开应用 → 新建/选择会话 → 连接 → 操作 → （可选）交棒给 AI<br>AI：通过接口 <code>session.connect()</code> 新建会话 或 <code>session.exec()</code> 进入已有会话<br>AI 完成任务后（可选）交还给人类</td></tr>
+          <tr><td>完成条件</td><td>终端正常交互（含 TUI 全屏程序）、AI 命令在终端中可见且有紫色来源标记、文件传输完成有进度反馈、控制权移交后视觉反馈明确</td></tr>
+          <tr><td>共享对象</td><td><strong>SSH Session</strong> — 到一台主机的连接，包含：连接配置、连接状态、终端流（PTY）、SFTP 通道、端口转发规则、AI 权限策略、<strong>控制权状态（human / ai / shared）</strong>、<strong>写锁状态（free / human_locked / ai_locked）</strong></td></tr>
+          <tr><td>关键风险</td><td>AI 发破坏性命令 → 拦截清单 + 用户确认<br>AI 与人类同时向终端写入 → <strong>控制权 + 写锁机制</strong>（取代单纯串行化）<br>AI 试图在无控制权时强制写 → 拒绝 + 通知用户</td></tr>
+        </table>
+
+        <h2>3. 范围界定</h2>
+
+        <h3>P0 — 支撑最小完整旅程</h3>
+        <table>
+          <tr><th>Feature ID</th><th>名称</th><th>去掉它会发生什么</th></tr>
+          <tr><td>FR-01</td><td>会话管理器</td><td>用户无法持久化保存主机配置，每次要手动输</td></tr>
+          <tr><td>FR-02</td><td>终端连接与生命周期</td><td>无法建立 SSH 连接；无法知道断没断线</td></tr>
+          <tr><td>FR-03</td><td>终端模拟器</td><td>无法交互执行 shell；vim/top/nmtui 等 TUI 程序打不开</td></tr>
+          <tr><td>FR-04</td><td>SFTP 文件传输</td><td>传文件必须另开一个工具</td></tr>
+          <tr><td>FR-05</td><td>AI 接口暴露</td><td>Trae 等 AI 客户端无法 attach 到会话</td></tr>
+          <tr><td>FR-06</td><td>AI 命令可视化</td><td>你看不见 Trae 在你的终端里做了什么</td></tr>
+          <tr><td>FR-07</td><td>AI 安全控制</td><td>AI 误操作可能炸掉远程机，你不敢接入</td></tr>
+          <tr><td>FR-08</td><td><strong>AI attach/detach 访客模式</strong></td><td>Trae 无法进来帮你排查；排查完不能自动退场</td></tr>
+          <tr><td>FR-09</td><td><strong>FinalShell 风格主机实时资源监控</strong></td><td>每次看负载/内存/网络都要手动跑 top/vmstat/df，和界面割裂</td></tr>
+          <tr><td>FR-10</td><td><strong>会话日志 + AI 活动日志</strong></td><td>日志必须要（TBD-05 明确 P0）。没有日志 = 会话留痕断了，出问题没法回溯</td></tr>
+        </table>
+
+        <h3>P1 — 主要操作负担</h3>
+        <ul>
+          <li>密钥管理（集成 ssh-agent）</li>
+          <li>端口转发管理（可视化增删改查）</li>
+          <li>主题切换（深浅色、终端配色预设）</li>
+          <li>命令历史搜索</li>
+          <li>资源监控历史回溯（5 分钟 → 1 小时 → 24 小时）</li>
+          <li>资源告警阈值（CPU > 90% 红色闪烁、磁盘 > 85% 提示）</li>
+          <li>Xmodem/Ymodem/Zmodem 支持（SFTP 之外的终端内文件传输）</li>
+          <li>跳板机 / SOCKS 代理</li>
+        </ul>
+
+        <h3>P2 — 远期或暂不做</h3>
+        <ul>
+          <li>X11 图形转发</li>
+          <li>团队会话共享/协作</li>
+          <li>SFTP ACL 权限管理</li>
+          <li>插件市场</li>
+        </ul>
+
+        <h2>4. 技术栈选型（已更新，解决臃肿问题）</h2>
+
+        <h3>为什么不选 Electron</h3>
+        <p>Electron 把 Chromium 浏览器引擎（~130 MB）和 Node.js（~30 MB）一起打包，最终安装包 <strong>150–250 MB</strong>，冷启动 200–500 ms，运行内存 150–300 MB。Chena-Shell 作为一个终端 + 文件传输工具，完全不需要浏览器渲染能力——Electron 是典型的"杀鸡用牛刀"。</p>
+
+        <h3>推荐方案对比</h3>
+        <table>
+          <tr><th>方案</th><th>打包体积</th><th>冷启动</th><th>运行内存</th><th>开发栈</th><th>跨平台</th></tr>
+          <tr><td><strong>Tauri v2 (Rust + Web UI)</strong></td><td><strong>3–10 MB</strong></td><td>< 50 ms</td><td>50–80 MB</td><td>Rust + Svelte/React</td><td>✓</td></tr>
+          <tr><td>Wails v2 (Go + Web UI)</td><td>3–10 MB</td><td>< 50 ms</td><td>60–100 MB</td><td>Go + Svelte/React</td><td>✓</td></tr>
+          <tr><td>C# WinUI 3</td><td>15–25 MB</td><td>< 100 ms</td><td>40–70 MB</td><td>C# + XAML</td><td>Windows 为主</td></tr>
+          <tr><td>纯 Rust (Iced/TK)</td><td>2–5 MB</td><td>< 30 ms</td><td>20–40 MB</td><td>Rust + 原生 UI</td><td>✓</td></tr>
+        </table>
+
+        <h3>SSH 能力覆盖验证</h3>
+        <table>
+          <tr><th>需要的底层能力</th><th>Tauri (Rust)</th><th>Wails (Go)</th><th>C# WinUI 3</th></tr>
+          <tr><td>SSH 2.0 连接</td><td><code>ssh2-rs</code> (libssh2 绑定)</td><td><code>golang.org/x/crypto/ssh</code> (标准库)</td><td>SSH.NET</td></tr>
+          <tr><td>PTY + TUI (vim/top/nmtui)</td><td>Windows ConPTY + PTY 模拟</td><td>Windows ConPTY</td><td>Windows ConPTY</td></tr>
+          <tr><td>SFTP v3–v6</td><td>ssh2-rs 原生</td><td>x/crypto/ssh/sftp 原生</td><td>SSH.NET 原生</td></tr>
+          <tr><td>端口转发</td><td>libssh2 原生</td><td>x/crypto/ssh 原生</td><td>SSH.NET 原生</td></tr>
+          <tr><td>ssh-agent / 密钥管理</td><td>ssh2-rs + ssh-agent</td><td>x/crypto/ssh/agent</td><td>SSH.NET</td></tr>
+          <tr><td>AI 接口 (MCP/CLI/WS)</td><td>三者 SDK 齐全</td><td>三者 SDK 齐全</td><td>三者 SDK 齐全</td></tr>
+        </table>
+
+        <h3>最终推荐</h3>
+        <p><strong>首选 Tauri v2</strong>：体积最小（3–10 MB，Electron 的 1/20～1/50）、启动最快（< 50 ms）、内存最低（50–80 MB）、性能最好。Rust 生态里 SSH 能力完整，UI 层用 Svelte/React 开发体验好。Tauri 复用系统 WebView2（Windows 10+ 自带，Edge 内置），不额外打包浏览器引擎。</p>
+        <p><strong>次选 Wails v2</strong>：如果团队更熟 Go。Go 标准库自带 SSH 实现不依赖 libssh2，体积一样 3–10 MB，开发比 Rust 友好。</p>
+        <p><strong>备选 C# WinUI 3</strong>：如果纯 Windows 生态、.NET 团队、需要最高开发效率。不跨平台但原生性能好，15–25 MB 也远好于 Electron。</p>
+
+        <div class="assumption"><strong>[TBD]</strong> 你更熟 Rust、Go 还是 C#？确认后锁定技术栈。跨平台是否是硬需求？</div>
+
+        <h2>5. 假设与产品形态</h2>
+
+        <div class="assumption"><strong>[Assumption, TBD]</strong> 产品形态：Windows 桌面应用（Tauri v2），跨平台（macOS/Linux）是 P2。AI 接口暴露为 MCP server（主）+ 本地 CLI（脚本化），WebSocket P1 再加。</div>
+        <div class="assumption"><strong>[Assumption, TBD]</strong> 会话配置本地加密存储（AES-256-GCM，密钥由主密码通过 Argon2id 派生），也支持导入/导出（加密）。没有主密码时降级为操作系统 DPAPI/Keyring 存储。</div>
+
+        <h2>5. 与现有产品的差异</h2>
+        <table>
+          <tr><th>维度</th><th>Xshell / PuTTY</th><th>AI-only SSH 工具</th><th><strong>Chena-Shell</strong></th></tr>
+          <tr><td>图形化界面</td><td>✓</td><td>✗</td><td>✓</td></tr>
+          <tr><td>文件传输</td><td>✓ (Xftp)</td><td>✗ 靠 scp 命令</td><td>✓ 内嵌 SFTP 面板</td></tr>
+          <tr><td>TUI 程序支持</td><td>✓</td><td>✗ 无 PTY</td><td>✓</td></tr>
+          <tr><td>AI 可调用</td><td>✗</td><td>✓</td><td>✓</td></tr>
+          <tr><td>AI 行为可见</td><td>—</td><td>✗</td><td>✓ 紫色标记 + 活动面板</td></tr>
+          <tr><td>AI 安全拦截</td><td>—</td><td>✗</td><td>✓ 默认拦截 + 用户确认</td></tr>
+          <tr><td>会话管理</td><td>✓</td><td>✗</td><td>✓</td></tr>
+          <tr><td><strong>AI attach/detach 访客模式</strong></td><td><strong>—</strong></td><td><strong>✗ 会话是 AI 自己的</strong></td><td><strong>✓ AI 临时接入人类会话帮排查，结束自动退出</strong></td></tr>
+          <tr><td><strong>会话始终归人类所有</strong></td><td><strong>✓</strong></td><td><strong>✗ AI 创建 AI 拥有</strong></td><td><strong>✓ 人类先连好，AI 只是访客</strong></td></tr>
+          <tr><td><strong>主机实时资源监控</strong></td><td><strong>✓ FinalShell 特色</strong></td><td><strong>✗</strong></td><td><strong>✓ 底部面板，2 秒采样，CPU/内存/磁盘/网络/负载/Top 进程</strong></td></tr>
+        </table>
+
+      </div>
+
+      <!-- ============ DETAIL ============ -->
+      <div id="prd-detail" style="display:none">
+
+        <h2>功能详情</h2>
+        <p style="color:var(--text-dim);font-size:12px">点击 prototype 中的元素会跳转/聚焦到对应的功能章节</p>
+
+        <!-- FR-01 -->
+        <div class="feature-section" id="feature-fm-session">
+          <div class="feature-head">
+            <span class="feature-id">FR-01</span>
+            <h3>会话管理器</h3>
+          </div>
+
+          <p><strong>目的</strong>：让用户持久化保存多台 SSH 主机的连接配置，快速连接/断开，并标记哪些会话当前有 AI 接入。</p>
+
+          <h4>布局</h4>
+          <p>左侧固定 200px 导航栏，从上到下依次：<code>+ 新建按钮</code>、<code>搜索框</code>、<code>会话列表</code>。每条会话显示连接状态小圆点、名称、补充信息（远端标识或"已断开"），有 AI 接入时右上角显示紫色 "AI" 小标签。</p>
+
+          <h4>触发与处理规则</h4>
+          <ul>
+            <li><strong>新建</strong>：点 <code>+</code> 弹出会话配置对话框，四个 tab — 基础（主机/端口/用户）、认证（密码/私钥/ssh-agent）、高级（keepalive/shell/自动重连）、AI 权限（是否允许 AI 接入 + 文件传输级别 + 自定义拦截正则）。保存后连接。</li>
+            <li><strong>编辑</strong>：右键会话项 → 编辑，打开同一个对话框。</li>
+            <li><strong>删除</strong>：右键 → 删除，弹出确认框 "确定删除会话 [名称]？该会话的命令历史和 SFTP 书签将一并删除"。</li>
+            <li><strong>连接/断开</strong>：单击会话名连接；右键或点标签页关闭按钮断开。断线后圆点变灰，自动重连开启时自动重试。</li>
+            <li><strong>导入/导出</strong>：支持从 Xshell、PuTTY、OpenSSH config 导入会话；导出为加密 JSON（AES-256），避免密码/私钥泄露。</li>
+          </ul>
+
+          <h4>字段规则</h4>
+          <table>
+            <tr><th>字段</th><th>类型</th><th>必填</th><th>默认</th><th>验证</th></tr>
+            <tr><td>会话名称</td><td>字符串</td><td>是</td><td>—</td><td>唯一；≤ 50 字符；不能含 <code>\/:*?"<>|</code></td></tr>
+            <tr><td>主机</td><td>字符串</td><td>是</td><td>—</td><td>合法 hostname 或 IPv4</td></tr>
+            <tr><td>端口</td><td>整数</td><td>是</td><td>22</td><td>1–65535</td></tr>
+            <tr><td>用户名</td><td>字符串</td><td>是</td><td>当前 OS 用户</td><td>非空</td></tr>
+            <tr><td>认证方式</td><td>枚举</td><td>是</td><td>密码+私钥</td><td>密码/私钥/ssh-agent/仅密码/仅私钥</td></tr>
+            <tr><td>密码</td><td>字符串</td><td>否</td><td>—</td><td>本地 AES-256 加密存储</td></tr>
+            <tr><td>AI 可接入</td><td>布尔</td><td>是</td><td>是</td><td>否则 AI 接口无法在该会话执行任何操作</td></tr>
+          </table>
+
+          <h4>异常</h4>
+          <ul>
+            <li>导入文件损坏：提示 "文件不是有效的 Chena-Shell 会话文件或密钥不匹配"。</li>
+            <li>删除 AI 正在使用的会话：阻断删除操作，提示 "当前有 AI 在会话 [名称] 上执行操作，无法删除"。</li>
+            <li>会话名称重名：保存时提示并高亮名称字段。</li>
+          </ul>
+        </div>
+
+        <!-- FR-02 -->
+        <div class="feature-section" id="feature-terminal">
+          <div class="feature-head">
+            <span class="feature-id">FR-02</span>
+            <h3>终端连接与生命周期</h3>
+          </div>
+
+          <p><strong>目的</strong>：让用户和 AI agent 都能在同一个 SSH Session 上交互执行 shell 命令，同时通过多标签页管理多台主机。</p>
+
+          <h4>布局</h4>
+          <p>主区域。上方是标签页栏（显示活跃主机名 + AI 小圆点 + 关闭按钮），下方是终端模拟器区域（深色背景，等宽字体，光标闪烁）。连接状态异常时终端顶部出现横幅（红色=断开、蓝色=连接中、紫色=AI 活动中）。</p>
+
+          <h4>处理规则</h4>
+          <ul>
+            <li><strong>连接成功</strong>：标签页的状态圆点变绿；终端输出欢迎信息（<code>Last login</code> 等）；AI 活动横幅（如果有 AI 在使用）出现。</li>
+            <li><strong>连接中</strong>：终端顶部显示 "正在连接 [主机]…" 蓝色横幅，带 spinner；超时 15 秒后显示失败横幅。</li>
+            <li><strong>断线</strong>：标签页圆点变灰；终端输出红色提示 "连接已断开 — 将在 5 秒后自动重连"；用户点"立即重连"按钮可加速。自动重连超过最大次数（默认 5）后停止，需用户手动重试。</li>
+            <li><strong>多标签页</strong>：每个标签页是独立的 SSH Session，可以指向同一台主机也可以不同。AI 调用默认在最近活跃的标签页执行，AI 接口可以指定 session ID。</li>
+            <li><strong>PTY 写权限</strong>：由会话的 <code>attach_state</code> 状态决定（FR-08），详见 <a href="#" onclick="switchPrdTab(document.querySelectorAll('.prd-tabs .ptab')[2],'prd-rules');return false">共享规则</a>。简化理解：默认 <code>human_only</code> = 只有人类能写；AI 调用 <code>session.attach()</code> 后变成 <code>ai_attached</code> = AI 能写、人类输入缓冲；AI <code>detach()</code> 后自动回到 <code>human_only</code>。</li>
+          </ul>
+
+          <h4>状态转换</h4>
+          <table>
+            <tr><th>当前状态</th><th>触发</th><th>下一个状态</th><th>用户可见</th></tr>
+            <tr><td>未连接</td><td>点"连接"</td><td>连接中</td><td>蓝色横幅</td></tr>
+            <tr><td>连接中</td><td>握手成功</td><td>已连接</td><td>标签页变绿</td></tr>
+            <tr><td>连接中</td><td>握手失败/超时</td><td>错误</td><td>红色横幅 + "重试"按钮</td></tr>
+            <tr><td>已连接</td><td>远端断开/网络中断</td><td>重连中</td><td>红色横幅 + 倒计时</td></tr>
+            <tr><td>重连中</td><td>重连成功</td><td>已连接</td><td>标签页恢复绿点</td></tr>
+            <tr><td>重连中</td><td>超过最大次数</td><td>错误</td><td>停止自动重连</td></tr>
+            <tr><td>错误</td><td>用户手动重试</td><td>连接中</td><td>—</td></tr>
+          </table>
+
+          <h4>异常</h4>
+          <ul>
+            <li>AI 试图连接一个"AI 可接入=否"的会话：接口返回 403，会话无任何视觉变化。</li>
+            <li>会话被用户关闭时 AI 仍在执行：后台线程收到 EOF，AI 接口返回 "Session closed by user"；AI 活动面板标记"被用户中断"。</li>
+            <li>同一 AI 请求同时打到多标签页：接口按 session_id 路由；未指定 session_id 时走"最近活跃"策略。</li>
+          </ul>
+        </div>
+
+        <!-- FR-03 -->
+        <div class="feature-section" id="feature-fm-terminal-ui">
+          <div class="feature-head">
+            <span class="feature-id">FR-03</span>
+            <h3>终端模拟器（含全屏 TUI）</h3>
+          </div>
+
+          <p><strong>目的</strong>：在 GUI 里提供与原生终端完全兼容的 shell 交互体验，包括 Vim、top、nmtui、htop 等全屏 TUI 程序。</p>
+
+          <h4>处理规则</h4>
+          <ul>
+            <li><strong>Shell 交互</strong>：PTY 模式运行，所有 ANSI/VT100 转义序列正确渲染；窗口 resize 时自动 <code>SIGWINCH</code>。</li>
+            <li><strong>全屏 TUI</strong>：不需要特殊处理——因为用 PTY，vim/top/nmtui 等程序原生就工作。<strong>[Assumption, TBD] 支持鼠标滚轮（scrollback）和终端内鼠标事件（如 vim 可视模式的鼠标选择）。</strong></li>
+            <li><strong>复制粘贴</strong>：选中 → 复制（Ctrl+C 或右键菜单）；粘贴（Ctrl+V 或右键粘贴）。粘贴多行时自动加换行。</li>
+            <li><strong>滚动缓冲</strong>：默认 5000 行，可在设置里改。独立于远端的 screen/tmux 缓冲。</li>
+            <li><strong>快捷键</strong>：Ctrl+C/D/L/U 等控制字符正常透传到 shell，不被 GUI 拦截。</li>
+          </ul>
+
+          <h4>AI 命令的终端内标记</h4>
+          <p>AI 通过 PTY 发出的输入行，在终端中以 <span style="color:#d8b4fe;background:rgba(199,125,255,.1);padding:0 2px;border-radius:2px">紫色高亮 + 行首 "AI " 小徽标</span> 显示。这个标记是渲染层的元数据（不是真实 PTY 内容），不会被终端程序读到。这样用户一眼就能区分哪些命令是自己打的、哪些是 AI 发的。</p>
+
+          <h4>回显智能高亮（P0）</h4>
+          <p>PTY 输出经过解析层后，对常见输出模式进行语义染色。这是渲染层的后处理，不修改真实 PTY 字节流。</p>
+
+          <table style="font-size:12px;border-collapse:collapse;margin:6px 0 10px">
+            <tr style="border-bottom:2px solid var(--md-outline-variant)">
+              <th style="padding:4px 8px;text-align:left;width:22%">模式</th>
+              <th style="padding:4px 8px;text-align:left;width:28%">识别特征</th>
+              <th style="padding:4px 8px;text-align:left">高亮策略</th>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">Shell 命令输入</td>
+              <td style="padding:6px 8px">提示符后的整行</td>
+              <td style="padding:6px 8px">二进制=蓝、flag=橙、路径=绿、管道=紫、重定向=红、字符串=绿引号</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">systemd status</td>
+              <td style="padding:6px 8px"><code>● name.service</code> / <code>Active: loaded/failed</code></td>
+              <td style="padding:6px 8px">● 绿/红/灰 状态色、Active: 彩色等级标签（failed=红底、running=绿底、inactive=灰）、PID=黄、路径=绿</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">syslog / journalctl</td>
+              <td style="padding:6px 8px">时间戳 + host + proc[pid]: [level] msg</td>
+              <td style="padding:6px 8px">时间戳=灰、主机=蓝、进程=青、<code>[emerg]/[error]</code>=红、<code>[warn]</code>=黄、<code>[notice]</code>=蓝</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">ss / netstat</td>
+              <td style="padding:6px 8px"><code>LISTEN/ESTAB</code> ip:port users</td>
+              <td style="padding:6px 8px">LISTEN=绿粗、端口=紫、IP=蓝、PID=黄、进程名=蓝/红（冲突进程）</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">ps / top</td>
+              <td style="padding:6px 8px">USER PID %CPU %MEM COMMAND</td>
+              <td style="padding:6px 8px">高 CPU 进程名=红、高内存=黄、PID=橙</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">配置文件 cat 输出</td>
+              <td style="padding:6px 8px">检测到 <code>{ }</code> / 分号 / 等号 / 注释 <code>#</code></td>
+              <td style="padding:6px 8px">括号=红、关键字=紫、字符串=绿、数字=粉、注释=灰斜体（类 nginx/CONF 语法）</td>
+            </tr>
+            <tr style="border-bottom:1px solid var(--md-outline-variant)">
+              <td style="padding:6px 8px">ls -l</td>
+              <td style="padding:6px 8px"><code>-rwxr-xr-x  user group size date name</code></td>
+              <td style="padding:6px 8px">权限 x=绿、w=橙、r=默认；可执行文件名=绿；目录=蓝加粗；符号链接=青</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 8px">通用数值</td>
+              <td style="padding:6px 8px">行内独立数字、IP 地址、端口、百分号</td>
+              <td style="padding:6px 8px">数值=粉、IP=蓝、端口=紫加粗、百分比>85%=红</td>
+            </tr>
+          </table>
+
+          <h4>识别策略</h4>
+          <ul>
+            <li><strong>轻量启发式（P0）</strong>：每行 PTY 输出进入渲染层前，用规则正则 + 简单上下文匹配做识别。不调用外部语法高亮引擎，延迟目标 &lt; 1ms/行。</li>
+            <li><strong>语言检测（P1）</strong>：当连续多行输出包含 <code>{ } ; =</code> 或 <code># // /*</code> 时，自动检测为对应语言（nginx/CONF/bash/Python/JSON 等），切换到语言特定的 token 表。</li>
+            <li><strong>AI 命令上下文</strong>：AI attach 期间输出的 shell 命令行自动走 shell token 化，人类手动输入的命令也走相同规则。</li>
+            <li><strong>可关闭</strong>：设置里"终端 → 回显语法高亮"开关可关闭，关闭后终端只渲染原始 PTY 字节（带 ANSI 颜色），不做后处理。</li>
+          </ul>
+
+          <h4>为什么 P0 就做</h4>
+          <ul>
+            <li>AI 排查场景里，systemd 红 active failed、端口冲突、日志 error 行这些关键信息需要"跳出来"，不然用户扫一眼终端找不到 AI 到底发现了什么</li>
+            <li>人类自己操作时也受益 — ls -l 的可执行文件一眼绿、ss 输出的 LISTEN 端口一眼紫</li>
+            <li>实现成本可控：规则正则表 + token 颜色映射，不依赖 tree-sitter 等重型引擎</li>
+          </ul>
+        </div>
+
+        <!-- FR-04 -->
+        <div class="feature-section" id="feature-sftp">
+          <div class="feature-head">
+            <span class="feature-id">FR-04</span>
+            <h3>SFTP 文件传输</h3>
+          </div>
+
+          <p><strong>目的</strong>：让用户无需另开工具就能在 Chena-Shell 里浏览、上传、下载远端文件；同时暴露给 AI 做程序化的文件操作。</p>
+
+          <h4>布局</h4>
+          <p>底部可折叠面板（高度可拖拽，默认 240px），左侧 tab 切换 SFTP / AI 活动 / 端口转发。SFTP 面板左右双栏：左侧本地、右侧远端，都有路径栏和文件列表。</p>
+
+          <h4>处理规则</h4>
+          <ul>
+            <li><strong>浏览</strong>：点击目录进入；支持路径栏直接跳转；显示文件名、大小、修改时间。</li>
+            <li><strong>拖拽传输</strong>：本地 → 远端 拖拽文件/目录触发上传；远端 → 本地 触发下载。拖拽时进度条悬浮显示。</li>
+            <li><strong>右键菜单</strong>：上传、下载、重命名、删除、新建目录、复制路径。</li>
+            <li><strong>进度与并发</strong>：单个传输任务显示进度（字节+百分比+速度）；最多 3 个并发任务，超出排队。完成后通知气泡。</li>
+            <li><strong>断点续传</strong>：<strong>P0 ✓</strong> 传输过程中断线重连后自动从断点恢复（记录已传字节数，用 SFTP check-resume 扩展查远端文件大小）；传输队列持久化到本地 JSON，应用重启后自动恢复未完成任务。</li>
+            <li><strong>覆盖冲突</strong>：目标存在时弹窗选择"覆盖 / 跳过 / 重命名副本 / 全部覆盖 / 全部跳过"。<strong>AI 发起的传输冲突：AI 不能决定，Chena-Shell 弹窗让用户选</strong>，30 秒超时默认跳过重试不覆盖。</li>
+            <li><strong>AI 接口</strong>：暴露以下能力给 AI：<code>listdir</code>、<code>stat</code>、<code>upload(local_path, remote_path)</code>、<code>download(remote_path, local_path)</code>、<code>delete</code>、<code>rename</code>、<code>mkdir</code>。AI 发起的传输同样在 SFTP 面板有进度显示。</li>
+          </ul>
+
+          <h4>异常</h4>
+          <ul>
+            <li>会话未连接时 SFTP 面板显示"无活跃会话"空状态，禁用所有操作按钮。</li>
+            <li>AI 在"AI 文件传输权限=仅下载"的会话上调用 upload：接口返回 403，SFTP 面板弹出提示"当前会话配置不允许 AI 上传"。</li>
+            <li>磁盘空间不足/远端配额超限：进度条停住，弹窗显示具体错误。</li>
+          </ul>
+        </div>
+
+        <!-- FR-05 -->
+        <div class="feature-section" id="feature-ai-api">
+          <div class="feature-head">
+            <span class="feature-id">FR-05</span>
+            <h3>AI 接口暴露</h3>
+          </div>
+
+          <p><strong>目的</strong>：让 AI agent 能以统一方式调用 Chena-Shell 的所有能力，同时这些调用在 GUI 里对人类可见。这是产品"双入口"的基础设施。</p>
+
+          <h4>暴露形式（<strong>TBD-01 已决：只做 MCP Server</strong>）</h4>
+          <p><strong>P0 只暴露 MCP Server，砍掉 CLI 和 WebSocket</strong>（CLI 和 WebSocket 留作未来场景，等实际需求出现再加）。</p>
+          <table>
+            <tr><th>形式</th><th>决策</th><th>说明</th></tr>
+            <tr><td><strong>MCP Server</strong></td><td><span style="color:#34d399">P0 ✓ 唯一实现</span></td><td>本地启动 MCP server（默认监听 <code>127.0.0.1:8767</code>，可在设置里改端口），按 MCP 协议暴露 tools。只接受本地连接，安全边界清晰。Trae 等 MCP 兼容 agent 直接调用。</td></tr>
+            <tr><td>本地 CLI（chenaShell-cli）</td><td><span style="color:#ef4444">砍掉 P0</span></td><td>脚本/CI 场景可以用 MCP client 实现，没必要同时维护两套协议。未来需要时再加。</td></tr>
+            <tr><td>WebSocket（ws://）</td><td><span style="color:#ef4444">砍掉 P0</span></td><td>流式 PTY 读写可以通过 MCP 的事件推送能力实现，不需要独立 WebSocket。</td></tr>
+          </table>
+
+          <h4>能力矩阵</h4>
+          <table>
+            <tr><th>能力</th><th>接口方法</th><th>可见性</th><th>安全</th></tr>
+            <tr><td>列出会话</td><td><code>session.list(filter?)</code></td><td>—（无副作用）</td><td>无</td></tr>
+            <tr><td>查询会话状态</td><td><code>session.status(session_id)</code></td><td>—</td><td>无</td></tr>
+            <tr><td><strong>attach 到会话</strong></td><td><code>session.attach(session_id, reason, mode="attached")</code></td><td>终端紫色横幅 + AI 活动面板</td><td>会话级 ai_allowed 必须开启；同一会话只允许一个 attach</td></tr>
+            <tr><td><strong>detach 退出会话</strong></td><td><code>session.detach(session_id, attach_token, reason)</code></td><td>终端绿色横幅 + 人类输入回放</td><td>必须带有效 attach_token；detach 后 token 失效</td></tr>
+            <tr><td>执行命令</td><td><code>session.exec(session_id, attach_token, command, blocking=true, timeout=30)</code></td><td>终端中紫色标记 + AI 活动面板</td><td>attach_token 必须匹配；危险命令检查 + 会话级策略</td></tr>
+            <tr><td>流式 PTY</td><td><code>session.pty_write(session_id, attach_token, data)</code> / 事件流 <code>session.pty_read</code></td><td>同 exec</td><td>同 exec</td></tr>
+            <tr><td>SFTP 操作</td><td><code>sftp.upload/download/list/delete/mkdir</code>（不需要 attach_token，但受 ai_allowed + 会话级文件权限控制）</td><td>SFTP 面板进度 + AI 活动面板</td><td>会话级文件传输权限</td></tr>
+            <tr><td>attach 历史</td><td><code>session.attach_history(session_id, limit=20)</code></td><td>AI 活动面板（展开查看）</td><td>无</td></tr>
+            <tr><td>（可选）新建会话</td><td><code>session.connect(config)</code>、<code>session.close(session_id)</code></td><td>会话管理器刷新 + 连接横幅</td><td>需要全局权限开关；非主场景</td></tr>
+          </table>
+          <p><strong>attach_token 认证</strong>：AI 通过 <code>attach()</code> 拿到 token，后续所有 PTY 写操作（exec/pty_write/detach）必须携带这个 token。token 是会话级的、一次性的、有 10 分钟闲置超时的。SFTP 操作不走 attach_token（但受会话级 ai_policy 文件传输权限控制），因为 SFTP 是独立子通道，不存在"占用 PTY"的问题。</p>
+
+          <h4>请求 ID 与溯源</h4>
+          <p>每个 AI 请求分配唯一 <code>request_id</code>，在整个执行链路（命令执行 → 输出 → 拦截 → 结果返回）中贯穿。GUI 上所有与该请求相关的视觉元素（紫色标记、AI 活动条目、拦截提示）都可点击，点击弹出详情对话框显示完整请求参数和返回值。</p>
+        </div>
+
+        <!-- FR-06 -->
+        <div class="feature-section" id="feature-ai-activity">
+          <div class="feature-head">
+            <span class="feature-id">FR-06</span>
+            <h3>AI 活动可视化</h3>
+          </div>
+
+          <p><strong>目的</strong>：让人类用户随时知道 AI 在做什么、做的结果如何，满足"AI 调用的所有指令、回显前台可见"这个核心要求。</p>
+
+          <h4>三个可见层</h4>
+          <ul>
+            <li><strong>会话级别</strong>：会话管理器里，有 AI 接入的会话显示紫色 "AI" 小标签（右上）。标签页也有同色小圆点。</li>
+            <li><strong>终端级别</strong>：AI 输入的命令行以紫色高亮 + "AI " 徽标显示（不影响 PTY 内容，纯渲染层标记）。</li>
+            <li><strong>面板级别</strong>：底部 AI 活动面板，按时间倒序列出所有 AI 请求。每条包含时间戳、会话 ID、命令、结果状态（成功/失败/拦截/等待确认）、耗时。当前等待用户确认的请求会持续显示并高亮。</li>
+          </ul>
+
+          <h4>AI 活动面板字段</h4>
+          <table>
+            <tr><th>字段</th><th>说明</th></tr>
+            <tr><td>时间戳</td><td>相对时间（HH:MM:SS）</td></tr>
+            <tr><td>会话名</td><td>点击跳转到该会话的标签页</td></tr>
+            <tr><td>请求来源</td><td>如 "Trae AI"、"本地 CLI"、显示来源进程名</td></tr>
+            <tr><td>命令/操作</td><td>exec 显示命令字符串、upload/download 显示源和目标路径</td></tr>
+            <tr><td>结果</td><td>成功（绿色 ✓）、失败（红色 ✗ + 错误摘要）、拦截（红色 ✖ + 原因）、等待确认（黄色 ⏳）、进行中（蓝色动画）</td></tr>
+            <tr><td>耗时</td><td>毫秒级</td></tr>
+            <tr><td>详情</td><td>点击弹出请求完整输入和输出（支持复制）</td></tr>
+          </table>
+        </div>
+
+        <!-- FR-07 -->
+        <div class="feature-section" id="feature-ai-safety">
+          <div class="feature-head">
+            <span class="feature-id">FR-07</span>
+            <h3>AI 安全控制</h3>
+          </div>
+
+          <p><strong>目的</strong>：在默认安全的前提下，让用户能按会话粒度决定 AI 能做什么、不能做什么。AI 安全策略 = 全局策略 × 会话级覆盖。</p>
+
+          <h4>TBD-02 已决：推荐模式（默认）</h4>
+          <p>AI 安全拦截分三层，优先级从高到低：</p>
+          <table>
+            <tr><th>层级</th><th>内容</th><th>命中后行为</th></tr>
+            <tr><td><strong>1. 会话级自定义黑名单</strong>（用户在会话配置里写的正则）</td><td>用户显式禁止的命令</td><td><strong>直接阻断</strong>，弹红色拦截提示，AI 接口返回 403</td></tr>
+            <tr><td><strong>2. 全局黑名单</strong>（不可关闭，硬编码）</td><td><code>rm -rf /</code> 及变体、<code>mkfs.*</code>、<code>dd if=/dev/zero</code>、<code>shutdown/reboot/init 0</code>、<code>iptables -F</code>（清空防火墙）、fork bomb <code>:(){:|:&amp;;};:</code></td><td><strong>直接阻断</strong>，弹红色拦截提示，AI 活动面板红色条目</td></tr>
+            <tr><td><strong>3. 全局"需确认"清单</strong>（可在设置里增删）</td><td><code>apt install</code>/<code>yum install</code>/<code>pacman -S</code>（包管理安装）、<code>systemctl restart/stop</code>、<code>nginx -t</code>、<code>mysql_secure_installation</code> 等危险维护命令</td><td><strong>弹确认框</strong>（阻塞 AI 但不阻塞人类），30 秒超时 = <strong>默认拒绝</strong>（不自动放行）</td></tr>
+            <tr><td>以上都没命中</td><td>普通命令（<code>ls</code>、<code>cat</code>、<code>tail</code>、<code>grep</code>…）</td><td><strong>直接放行</strong>，紫色标记 + AI 活动面板事后可见</td></tr>
+          </table>
+          <p style="color:var(--text-dim);font-size:12px;margin-top:6px">用户可以在全局设置里把推荐模式切成严格（所有命令都确认）或宽松（只有黑名单拦，需确认清单忽略），但默认就是推荐。严格/宽松切换会在 AI 活动面板顶部有明显提示。</p>
+
+          <h4>确认对话框行为</h4>
+          <ul>
+            <li>弹窗阻塞 AI 请求（不阻塞人类输入），显示完整命令、会话名、风险等级（低/中/高/紧急）、来源。</li>
+            <li>三个选项：<strong>拒绝</strong>、<strong>本次允许</strong>、<strong>永久允许此类型</strong>（加入该会话的 AI 白名单，下次自动放行）。</li>
+            <li>30 秒内未响应 = 默认拒绝（可在全局设置里改超时时间）。拒绝后 AI 接口收到 "Request denied by user"。</li>
+            <li>人类也可以在 AI 活动面板里对已经执行过的命令点"加入白名单"或"加入黑名单"。</li>
+          </ul>
+
+          <h4>会话级 AI 权限矩阵</h4>
+          <table>
+            <tr><th>权限项</th><th>默认</th><th>可选值</th></tr>
+            <tr><td>允许 AI 接入此会话</td><td>是</td><td>是 / 否</td></tr>
+            <tr><td>AI 文件传输</td><td>可读写</td><td>可读写 / 仅下载 / 仅上传 / 禁用</td></tr>
+            <tr><td>AI 执行命令</td><td>按全局推荐策略</td><td>按全局推荐 / 全部放行（绕过所有拦截）/ 仅白名单（仅会话白名单里的命令能执行）</td></tr>
+            <tr><td>自定义拦截正则</td><td>空</td><td>每行一条正则（命中即直接阻断）</td></tr>
+          </table>
+        </div>
+
+        <!-- FR-08 -->
+        <div class="feature-section" id="feature-ai-attach">
+          <div class="feature-head">
+            <span class="feature-id">FR-08</span>
+            <h3>AI attach / detach — 访客模式</h3>
+          </div>
+
+          <p><strong>目的</strong>：让外部 AI agent（如 Trae）通过接口临时"接入"一个人类已经手动连接好的会话，在同一个 PTY 里排查问题、执行命令，然后安全退出。AI 永远是访客，会话始终归人类所有。这是 Chena-Shell 作为"被 AI 调用的 SSH 服务"的核心能力。</p>
+
+          <h4>典型场景（主场景）</h4>
+          <ol>
+            <li>你在 Chena-Shell 里手动连好 <code>prod-web-02</code>，正在操作中 —— nginx 502，自己搞不定</li>
+            <li>切到 Trae 客户端（另一个应用），新建任务："帮我排查 prod-web-02 的 nginx 502" —— Trae 通过 Chena-Shell 暴露的 MCP 接口调用 <code>session.attach("prod-web-02", reason="nginx 502 排查")</code></li>
+            <li>Chena-Shell 里你正在看的 <code>prod-web-02</code> 终端实时显示 Trae 的每一步操作（紫色标记 + "AI " 徽标），你全程看</li>
+            <li>Trae 跑完 <code>journalctl</code>、<code>systemctl status nginx</code>、<code>tail -f error.log</code>，定位到配置语法错误，调用 <code>session.detach(reason="搞定了，修复了 nginx.conf 里的端口号")</code></li>
+            <li>Chena-Shell 自动恢复到人类独占状态，你在同一个终端里继续手动操作 —— 整个过程你没有离开过这个会话</li>
+          </ol>
+
+          <h4>Session AI 状态（三态，足够）</h4>
+          <table>
+            <tr><th>状态</th><th>含义</th><th>人类能写？</th><th>AI 能写？</th><th>进入方式</th><th>退出方式</th></tr>
+            <tr><td><code>human_only</code></td><td>默认状态，会话归人类</td><td>✓ 立即写入</td><td>✗ 接口返回 403</td><td>会话刚连上时；AI detach 后自动回到这里</td><td>人类手动操作</td></tr>
+            <tr><td><code>ai_attached</code></td><td>AI 正在排查，人类的输入被缓冲</td><td>缓冲排队（等 AI detach 后回放）</td><td>✓ 立即写入 PTY</td><td>AI 调用 <code>session.attach()</code>，前提是会话级 AI 权限未禁用</td><td>AI 调用 <code>session.detach()</code>；或人类点"踢出 AI"按钮</td></tr>
+            <tr><code>shared</code></td><td>高级模式（默认不推荐），双方都能写</td><td>✓ 进入统一写队列</td><td>✓ 进入统一写队列</td><td>标签页菜单手动开启；或 attach 时传 <code>mode="shared"</code></td><td>AI detach 后回到 human_only</td></tr>
+          </table>
+
+          <h4>AI attach 流程（接口侧）</h4>
+          <ol>
+            <li>AI 调用 <code>session.attach(session_id, reason, mode="attached")</code></li>
+            <li>Chena-Shell 检查：会话是否存在 → 是否已连接 → 会话级 AI 权限是否允许 → 当前是否有其他 AI attach（同一时刻只能一个 AI attach）</li>
+            <li>检查通过 → 状态切为 <code>ai_attached</code>（或请求的 mode）；返回 <code>attach_token</code>（后续 exec 调用需要带上，防止伪造）</li>
+            <li>检查失败 → 返回 403/404/409；AI 活动面板不产生任何条目</li>
+          </ol>
+
+          <h4>AI 会话期间的规则</h4>
+          <ul>
+            <li><strong>AI 操作可见性</strong>：AI 发出的每条命令在终端中以紫色 + "AI " 徽标显示（同现有设计）；AI 活动面板实时更新；标签页出现 🤖 紫色圆点。</li>
+            <li><strong>人类输入缓冲</strong>：人类在 AI attach 期间打的字符，被缓冲在一个 512 字节的 FIFO 队列里。AI detach 后，缓冲内容以 <strong>每个字符间隔 5ms</strong> 的速度回放进 PTY（避免 shell 来不及处理）。队列溢出 → 丢弃最早的 128 字节并在 AI 活动面板提示。</li>
+            <li><strong>AI 安全检查</strong>：attach 之后，AI 的每条 <code>exec()</code> 仍然走 FR-07 的安全拦截清单。attach 是"入场券"，不是"通行证"。</li>
+            <li><strong>同一个会话只允许一个 AI attach</strong>：如果 session_id 已经是 ai_attached 状态，另一个 AI 再调用 attach → 返回 409 "Another AI is currently attached"。</li>
+            <li><strong>AI attach token</strong>：attach 成功后 Chena-Shell 返回一个 token，后续 exec/pty_write/detach 调用必须带上这个 token。token 在 detach 或会话关闭后失效。防止非授权 AI 冒充已 attach 的 AI。</li>
+            <li><strong>AI detach</strong>：AI 完成后调用 <code>session.detach(session_id, reason)</code>，状态自动切回 <code>human_only</code>，缓冲的人类输入开始回放。detach 不需要任何确认，是 AI 主动结束的标准流程。</li>
+          </ul>
+
+          <h4>人类可见的 UI 反馈</h4>
+          <ul>
+            <li><strong>终端顶部横幅（淡紫色）</strong>：AI attach 时出现 "🤖 [AI 名称，如 Trae] 正在排查 [会话名] — 原因：[reason]"；detach 时变为绿色 "🤖 [AI 名称] 已退出 — 原因：[reason]"，3 秒后淡出。</li>
+            <li><strong>标签页</strong>：🤖 紫色圆点表示有 AI attach；右侧出现小按钮 "✕ 踢出 AI"（只在 ai_attached 状态显示），人类可以随时点这个强制终止 AI 会话（等价于 detach，AI 接口收到 "Forced detach by user"）。</li>
+            <li><strong>AI 活动面板顶部</strong>："当前 [会话名] 状态：AI attach 中 · 等待 AI 退出后回放输入"；AI 事件列表里出现 attach / detach 两条入口/退出记录。</li>
+            <li><strong>终端输入区</strong>：ai_attached 状态下，输入框变灰 + 小字提示 "AI 排查中 — 你的输入将在 AI 退出后执行"。shared 状态下输入框正常可用 + 小字提示 "共享模式 — 双方都能向终端写入"。</li>
+          </ul>
+
+          <h4>与 AI 接口的完整交互示例（伪代码）</h4>
+          <pre style="background:#0b0e14;color:#93c5fd;padding:10px;border-radius:5px;font-size:12px;font-family:'Cascadia Code','Consolas',monospace;white-space:pre-wrap;margin:0">// Trae agent 视角
+
+// 1. 列出 Chena-Shell 里已连接的会话
+sessions = chenaShell.session.list({ connected: true })
+// => [{ session_id: "abc-123", name: "prod-web-02", host: "10.0.0.50", ai_allowed: true, state: "connected" }]
+
+// 2. attach 到目标会话
+attach_result = chenaShell.session.attach(
+  session_id: "abc-123",
+  reason: "nginx 502 排查",
+  mode: "attached"
+)
+// => { attach_token: "tk_xyz789", current_prompt: "root@prod-web:/var/log#" }
+
+// 3. 在 PTY 里逐条执行命令（终端里每条都紫色显示）
+chenaShell.session.exec(session_id: "abc-123", attach_token: "tk_xyz789", command: "systemctl status nginx --no-pager")
+chenaShell.session.exec(session_id: "abc-123", attach_token: "tk_xyz789", command: "journalctl -u nginx -n 50 --no-pager")
+chenaShell.session.exec(session_id: "abc-123", attach_token: "tk_xyz789", command: "cat /etc/nginx/sites-enabled/default")
+// ... 定位到 server 块里的 listen 8080 写错了应该是 80 ...
+
+// 4. 修复
+chenaShell.session.exec(session_id: "abc-123", attach_token: "tk_xyz789", command: "sed -i 's/listen 8080/listen 80/' /etc/nginx/sites-enabled/default")
+chenaShell.session.exec(session_id: "abc-123", attach_token: "tk_xyz789", command: "nginx -t && systemctl restart nginx")
+
+// 5. 退出，把会话还给人类
+chenaShell.session.detach(session_id: "abc-123", attach_token: "tk_xyz789", reason: "搞定了，nginx.conf 里 listen 端口写错了，已修复")</pre>
+
+          <h4>异常</h4>
+          <ul>
+            <li>AI 在 attach 期间会话断开重连：Chena-Shell 自动重连 PTY，AI 的 attach_token 仍然有效，exec 调用继续走；重连失败超过最大次数 → attach 自动失效，返回 503 给 AI。</li>
+            <li>AI 持有 attach_token 但人类关闭了该标签页：AI 接口收到 "Session UI closed"（PTY 其实断了），Chena-Shell 标记会话为 error 状态。AI 可以选择重新 attach 或放弃。</li>
+            <li>人类点"踢出 AI"：AI 正在执行的命令在 PTY 层面被终止（发送 SIGHUP），AI 接口收到 "Forced detach by user"，attach_token 立即失效。</li>
+            <li>AI attach 后长时间没有任何 exec（默认 10 分钟）：Chena-Shell 自动 detach，避免 AI 意外挂住会话。AI 收到 "Auto-detached due to inactivity"。</li>
+            <li>两个 AI 同时调用 attach：第二个收到 409，返回正在 attach 的 AI 名称和 attach 起始时间，让调用方选择是等待还是放弃。</li>
+          </ul>
+        </div>
+
+        <!-- FR-09 -->
+        <div class="feature-section" id="feature-resource-monitor">
+          <div class="feature-head">
+            <span class="feature-id">FR-09</span>
+            <h3>FinalShell 风格主机实时资源监控</h3>
+          </div>
+
+          <p><strong>目的</strong>：在 Chena-Shell 界面内置一个轻量级实时监控面板，让你不用在终端里手动跑 <code>top</code>、<code>vmstat</code>、<code>df -h</code> 就能看到远程主机的 CPU、内存、磁盘、网络、负载等核心指标。布局抄袭 FinalShell（独立面板 + 小图表 + 关键数字），但采样更轻量、UI 更现代。</p>
+
+          <h4>布局</h4>
+          <p>底部面板第四个 tab "资源"，一行排列 5 个指标卡片。默认自动激活（会话连接成功后自动出现），也可以手动切换。终端主区域（上半部分）不受监控面板影响——监控在底部独立区域，和 SFTP / AI 活动 / 端口转发 tab 并列。</p>
+
+          <h4>指标清单（P0 必须有）</h4>
+          <table>
+            <tr><th>指标</th><th>采集方式</th><th>UI 展示</th><th>目标系统</th></tr>
+            <tr><td>CPU 使用率（user + sys + idle）</td><td><code>/proc/stat</code> 两次采样差值<br>（Linux）/ <code>sysctl</code>（macOS）</td><td>进度条百分比 + 双线 sparkline（user 实线 + sys 虚线）+ 核心数</td><td>Linux + macOS</td></tr>
+            <tr><td>内存使用（物理 + Swap）</td><td><code>/proc/meminfo</code></td><td>进度条百分比 + sparkline + 已用/总量 + Swap 状态</td><td>Linux + macOS</td></tr>
+            <tr><td>磁盘使用（所有挂载点）</td><td><code>df -k</code></td><td>百分比列表 + 进度条；单分区 > 80% 黄色、> 90% 红色高亮</td><td>Linux + macOS</td></tr>
+            <tr><td>网络流量（指定网卡）</td><td><code>/proc/net/dev</code> 两次采样差值<br>（Linux）/ <code>netstat -ib</code>（macOS）</td><td>双线 sparkline（入实线 + 出虚线）+ 当前速率 + 累计总量</td><td>Linux + macOS</td></tr>
+            <tr><td>Load Average</td><td><code>/proc/loadavg</code> / <code>uptime</code></td><td>大号粗体数字（1m）+ 小号 1m/5m/15m 三值</td><td>Linux + macOS</td></tr>
+            <tr><td>TOP CPU 进程</td><td><code>ps aux --sort=-%cpu | head -5</code> 或等效方式</td><td>进程 PID / 名称 / CPU% 三列小列表（4 行）</td><td>Linux + macOS</td></tr>
+          </table>
+
+          <h4>采样策略（控制远端开销）</h4>
+          <ul>
+            <li><strong>采样间隔</strong>：默认 2 秒；用户可在全局设置里改（1 秒 ~ 10 秒）。CPU、内存、网络、负载、TOP 进程共用同一次采样，避免多次命令。磁盘使用率（<code>df</code>）采样频率减半（4 秒一次）——因为磁盘变化慢，省开销。</li>
+            <li><strong>采集实现</strong>：优先用"读文件 + 本地计算"的轻量方式（<code>/proc/*</code>、<code>/sys/*</code>），避免执行 <code>vmstat</code>、<code>top -b -n1</code> 这类有开销的进程。macOS 没有 <code>/proc</code> 时降级到 <code>sysctl</code> + <code>netstat</code>。</li>
+            <li><strong>开销上限</strong>：单会话监控的远端 CPU 占用目标 ≤ 0.5%，内存增量 ≤ 2 MB。采样间隔和采集方式都为这个目标服务。</li>
+            <li><strong>缓冲窗口</strong>：UI 显示最近 5 分钟（150 个点 @ 2 秒）的 sparkline 数据。超过窗口的旧数据丢弃（不做持久化，历史回溯 P1）。</li>
+          </ul>
+
+          <h4>视觉反馈（FinalShell 风格 + 简化）</h4>
+          <ul>
+            <li><strong>指标卡片</strong>：每个指标一个独立卡片，左上指标名、右上当前值（大号加粗）、中间进度条 + sparkline 图、底部小字详细值。卡片水平排列，总宽度随底部面板宽度自适应。</li>
+            <li><strong>颜色语义</strong>：CPU < 60% 绿、60–85% 黄、> 85% 红；内存 < 70% 绿、70–90% 黄、> 90% 红；磁盘同上。颜色渐变通过 CSS transition 平滑过渡（0.6 秒）。</li>
+            <li><strong>网络双线</strong>：入流量（↓）实线绿色，出流量（↑）虚线红色，在同一个 sparkline 里叠加显示。</li>
+            <li><strong>状态指示</strong>：底部面板最下方有一行小字：采样间隔 · 历史窗口长度 · 当前"正常 / 警告 / 严重"状态 · 是否自动刷新中。</li>
+            <li><strong>会话切换</strong>：切换标签页时，监控面板自动跟随当前活跃的会话；不同会话的监控数据独立采集、独立缓冲、独立显示。</li>
+          </ul>
+
+          <h4>与 AI 的交互</h4>
+          <p>监控面板对 AI 完全透明——AI 不需要、也无法控制采集流程。但监控的数据对 AI 排查有价值：</p>
+          <ul>
+            <li>AI attach 到会话后，可以直接在 Chena-Shell UI 上看到实时 CPU/内存/网络曲线，**和人类看的一样**。但 AI 不需要通过接口读监控数据——它自己在 PTY 里跑 <code>top</code> / <code>vmstat</code> 更灵活。</li>
+            <li>[Assumption, TBD] 如果后续 AI 确实需要结构化监控数据，可以加一个只读接口 <code>session.metrics(session_id, since?)</code> 返回当前快照 + 指定时间窗口的历史点。P0 不做。</li>
+          </ul>
+
+          <h4>异常与降级</h4>
+          <ul>
+            <li>远端是 **Windows Server**：P0 不支持，监控面板显示 "Windows 监控暂不支持" 空状态；P1 加 WMI / <code>typeperf</code> 采集。</li>
+            <li>采集命令超时（单次 > 3 秒）：跳过这次采样，保留上一次的数值；连续 3 次超时 → 面板显示 "采集失败 · 检查远端权限" 提示；会话断开重连后自动恢复。</li>
+            <li>TOP 进程采集返回空（系统没有 ps 或被禁）：卡片显示 "-"，不影响其他指标。</li>
+            <li>单会话被关闭 → 对应采集器立即停止，释放本地缓冲。多会话并行采集开销累加，超过 5 个活跃监控时采集间隔自动调整到 3 秒。</li>
+            <li>AI attach 期间：监控采集**正常继续**，不受 AI 读写 PTY 的影响。采集通过独立的 SFTP/exec 通道实现，和 PTY 会话解耦。</li>
+          </ul>
+        </div>
+
+      </div>
+
+      <!-- ============ RULES ============ -->
+      <div id="prd-rules" style="display:none">
+
+        <h2>共享规则</h2>
+
+        <h3>SSH Session 对象模型</h3>
+        <table>
+          <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+          <tr><td>session_id</td><td>字符串（UUID）</td><td>全局唯一标识，AI 接口使用</td></tr>
+          <tr><td>config</td><td>对象</td><td>FR-01 的所有会话配置字段（主机、端口、认证等）</td></tr>
+          <tr><td>state</td><td>枚举</td><td>unconnected / connecting / connected / reconnecting / error</td></tr>
+          <tr><td><strong>attach_state</strong></td><td><strong>枚举</strong></td><td><strong>human_only / ai_attached / shared — AI attach 状态（FR-08）</strong></td></tr>
+          <tr><td><strong>attach_token</strong></td><td><strong>字符串（可空）</strong></td><td><strong>AI attach 成功后返回的一次性 token，所有 exec/pty_write/detach 必须带上</strong></td></tr>
+          <tr><td><strong>attached_by</strong></td><td><strong>字符串（可空）</strong></td><td><strong>正在 attach 的 AI 名称（如 "Trae"、"Claude"、本地进程名）</strong></td></tr>
+          <tr><td><strong>human_input_buffer</strong></td><td><strong>缓冲</strong></td><td><strong>ai_attached 状态下人类输入暂存，最长 512 字节，detach 后回放</strong></td></tr>
+          <tr><td><strong>attach_history[]</strong></td><td><strong>数组</strong></td><td><strong>attach/detach 历史，默认保留最近 20 条</strong></td></tr>
+          <tr><td>pty_stream</td><td>句柄</td><td>连接后的 PTY 流，人类和 attach 的 AI 共享</td></tr>
+          <tr><td>sftp_channel</td><td>句柄</td><td>独立的 SFTP 子通道，按需创建</td></tr>
+          <tr><td>ai_policy</td><td>对象</td><td>会话级 AI 权限（FR-07）— 允许 AI attach？允许 AI 文件传输？拦截正则？</td></tr>
+          <tr><td>ai_requests[]</td><td>数组</td><td>该会话历史 AI 请求（exec/pty_write 每次调用），滚动缓冲默认 1000 条</td></tr>
+        </table>
+
+        <h3>AI 请求生命周期</h3>
+        <p>AI 接口发出 <code>session.exec(session_id, attach_token, command)</code> 后的完整流程：</p>
+        <ol>
+          <li>收到请求，分配 <code>request_id</code>，状态 = <code>queued</code></li>
+          <li><strong>attach_token 验证</strong>：token 是否存在、是否匹配该会话、是否已过期 — 任一不通过 → 返回 401，状态 = <code>token_invalid</code></li>
+          <li><strong>attach_state 前置检查</strong>：当前会话 <code>attach_state</code> 不是 <code>ai_attached</code> 或 <code>shared</code> → 返回 409，状态 = <code>not_attached</code>（人类还没让 AI 进来）</li>
+          <li>安全检查：匹配全局黑名单 → 命中则状态 = <code>blocked</code>，AI 活动面板显示拦截</li>
+          <li>命中需确认列表 → 状态 = <code>awaiting_user</code>，弹出确认对话框</li>
+          <li>用户允许 → 状态 = <code>executing</code>，命令进入 PTY 写队列；终端中显示紫色标记</li>
+          <li>命令执行完成 → 状态 = <code>succeeded</code> / <code>failed</code>，AI 活动面板显示结果 + 耗时</li>
+          <li>超过 timeout → 状态 = <code>timeout</code>，终端保持原样，AI 接口返回超时</li>
+        </ol>
+        <p>简化理解：<strong>没有 attach_token + attach_state 不是 ai_attached → AI 连 exec 的门都碰不到</strong>。这是比之前"控制权前置检查"更严格的认证边界。</p>
+
+        <h3>基于 attach_state 的写权限规则</h3>
+        <table>
+          <tr><th>attach_state</th><th>人类写入 PTY</th><th>AI 写入 PTY（需 attach_token）</th><th>典型场景</th></tr>
+          <tr><td><code>human_only</code></td><td>立即写入</td><td>被拒绝（409 not_attached）</td><td>默认状态，人类正常操作</td></tr>
+          <tr><td><code>ai_attached</code></td><td>缓冲到 <code>human_input_buffer</code>（512B 上限）</td><td>立即写入</td><td>AI 正在排查，人类围观或偶尔插嘴（等 detach 后回放）</td></tr>
+          <tr><td><code>shared</code></td><td>进入统一 FIFO 写队列</td><td>进入统一 FIFO 写队列</td><td>高级场景：AI 跑后台任务、人类随时补命令</td></tr>
+        </table>
+        <p>规则比之前简单很多。写锁、跨 AI 串行化、复杂状态都砍掉了 — 一个会话同一时刻只允许一个 AI attach，自然就不需要"跨 AI 竞争"的复杂度。</p>
+
+        <h3>会话级安全 × 全局安全的叠加规则</h3>
+        <p>最终策略 = <strong>会话级配置</strong> ∩ <strong>全局策略</strong>，取交集：</p>
+        <table>
+          <tr><th>全局策略</th><th>会话级</th><th>最终效果</th></tr>
+          <tr><td>允许 AI 接入</td><td>禁止 AI 接入</td><td>禁止（会话优先）</td></tr>
+          <tr><td>默认拦截清单</td><td>全部放行</td><td>仍拦截（默认清单不可关闭）</td></tr>
+          <tr><td>需确认的危险命令</td><td>全部放行</td><td>需确认（全局危险命令优先）</td></tr>
+          <tr><td>AI 文件传输可读写</td><td>仅下载</td><td>仅下载（会话优先）</td></tr>
+        </table>
+
+        <h3>加密与存储</h3>
+        <ul>
+          <li>会话配置中的密码、私钥 passphrase 使用 AES-256-GCM 加密，密钥由用户首次设置的主密码通过 Argon2id 派生。</li>
+          <li>如果用户没有设置主密码 → 降低安全提示 + 操作系统 DPAPI / Keyring 存储。</li>
+          <li>AI 请求历史默认不持久化（仅内存），可在设置里开启磁盘持久化（同样加密）。</li>
+        </ul>
+      </div>
+
+      <!-- ============ OPEN ============ -->
+      <div id="prd-open" style="display:none">
+
+        <h2>决策记录（全部已对齐）</h2>
+        <p style="color:var(--text-dim);font-size:12px">这些 TBD 已全部由产品方确认，不再开放讨论，仅作为决策记录留存</p>
+
+        <!-- ========== TBD-01 ========== -->
+        <div class="tbd" style="border-left-color:#34d399">
+          <strong style="color:#34d399">✓ 已决 · TBD-01：AI 接口形态</strong><br>
+          <p><strong>只做 MCP Server，砍掉 CLI 和 WebSocket。</strong></p>
+          <ul>
+            <li>主场景明确：Trae 等 MCP 兼容 agent 通过 MCP 协议调用 Chena-Shell</li>
+            <li>CLI（chenaShell CLI attach/exec）和 WebSocket 是未来场景，P0 不做，避免三种协议的维护负担</li>
+            <li>MCP Server 监听本地 localhost:xxxx（默认 8767，可在设置里改），只接受本地连接，安全边界清晰</li>
+            <li>AI 接口方法矩阵：<code>session.list</code> / <code>session.status</code> / <code>session.attach</code> / <code>session.detach</code> / <code>session.exec</code> / <code>session.pty_write</code> / <code>session.attach_history</code> / <code>sftp.*</code>（不需要 attach_token，受 ai_policy 控制）</li>
+          </ul>
+        </div>
+
+        <!-- ========== TBD-02 ========== -->
+        <div class="tbd" style="border-left-color:#34d399">
+          <strong style="color:#34d399">✓ 已决 · TBD-02：AI 安全拦截默认行为</strong><br>
+          <p><strong>推荐模式（默认）。</strong></p>
+          <table>
+            <tr><th>分类</th><th>默认行为</th></tr>
+            <tr><td>命中全局黑名单（<code>rm -rf /</code>、<code>mkfs</code>、<code>shutdown</code>、<code>:(){:|:&amp;;};:</code>…）</td><td><strong>直接阻断</strong>，AI 活动面板显示红色拦截</td></tr>
+            <tr><td>命中全局"需确认"清单（<code>apt install</code>、<code>yum install</code>、<code>systemctl restart</code>、<code>nginx -t</code>…）</td><td><strong>弹确认框</strong>，30 秒不操作自动拒绝（超时算拒绝，不自动放行）</td></tr>
+            <tr><td>会话级自定义黑名单</td><td><strong>直接阻断</strong>（比全局黑名单优先级更高，覆盖全局）</td></tr>
+            <tr><td>以上都没命中</td><td><strong>直接放行</strong>，不需要每次确认（紫色标记 + AI 活动面板事后可见）</td></tr>
+            <tr><td>全局/会话级都配置了"全部需确认"</td><td>强制切到严格模式（用户主动开启才出现这个配置）</td></tr>
+          </table>
+          <p style="color:var(--text-dim);font-size:12px;margin-top:6px">用户可以在设置里把推荐模式切到严格（所有命令都确认）或宽松（黑名单只拦，白名单全部放行），但默认就是推荐。</p>
+        </div>
+
+        <!-- ========== TBD-03 ========== -->
+        <div class="tbd" style="border-left-color:#34d399">
+          <strong style="color:#34d399">✓ 已决 · TBD-03：产品形态与技术栈</strong><br>
+          <p><strong>Tauri v2 + 本地 exe，不做 Electron，不做云同步。</strong></p>
+          <ul>
+            <li>技术栈：Rust 后端（Tauri v2）+ Web 前端（React + TypeScript）— 体积小（~15MB 安装包 vs Electron ~150MB）、内存占用低（~30MB vs Electron ~200MB）、启动快</li>
+            <li>部署方式：单文件 exe 安装包（Windows），本地运行，所有会话配置和加密数据存储在用户本地 AppData 目录</li>
+            <li>自动更新：开启（Tauri 内置 updater），但更新源可在设置里关闭（离线环境）</li>
+            <li>云同步：P0 不做。会话配置、密钥、加密数据全部本地存储。P1 如果有用户需求再加（加密后同步）</li>
+            <li>登录：不需要。首次启动就是本地应用，无账号体系</li>
+          </ul>
+        </div>
+
+        <!-- ========== TBD-04 ========== -->
+        <div class="tbd" style="border-left-color:#34d399">
+          <strong style="color:#34d399">✓ 已决 · TBD-04：文件传输断点续传 + 冲突处理</strong><br>
+          <p><strong>断点续传进 P0，冲突让用户确认抉择。</strong></p>
+          <ul>
+            <li>SFTP 下载/上传过程中断线重连后，自动从断点恢复（记录已传字节数，用 <code>sftp_client::metadata</code> 查远端文件大小）</li>
+            <li>传输队列里的任务会被持久化（本地 JSON，记录源/目标/已传字节/时间戳），应用重启后自动恢复传输</li>
+            <li>AI 发起的文件传输覆盖冲突：<strong>AI 不能决定</strong>，Chena-Shell 弹出确认对话框（"xxx 文件已存在，操作：[覆盖 / 跳过 / 重命名 / 全部覆盖] — 这是 AI 请求的传输"），用户选完才继续；30 秒超时默认跳过重试不覆盖</li>
+            <li>人类发起的文件传输冲突：默认弹同样的对话框，用户手动选</li>
+            <li>文件传输进度和日志同样进入 AI 活动面板（AI 发起的）和底部 SFTP 面板</li>
+          </ul>
+        </div>
+
+        <!-- ========== TBD-05 ========== -->
+        <div class="tbd" style="border-left-color:#34d399">
+          <strong style="color:#34d399">✓ 已决 · TBD-05：抄袭 Xshell 的功能边界</strong><br>
+          <p>以下是 Xshell 7 完整功能清单（参考 NetSarang 官方 datasheet），Chena-Shell 是否需要逐一列出。已标注 P0 必做 / 可选（视实现成本决定）/ 砍掉（不需要或已有替代）/ AI-only（AI 可用但 GUI 不做）。<strong>日志功能明确进入 P0。</strong></p>
+
+          <table>
+            <tr><th>分类</th><th>Xshell 功能</th><th>Chena-Shell 决策</th><th>说明</th></tr>
+            <tr><td rowspan="6"><strong>会话管理</strong></td><td>会话树/文件夹/标签页/分组</td><td><span style="color:#34d399">P0 ✓</span></td><td>FR-01 已覆盖</td></tr>
+            <tr><td>一键重连 / 断线自动重连</td><td><span style="color:#34d399">P0 ✓</span></td><td>FR-02 已覆盖</td></tr>
+            <tr><td>会话配置导入/导出（xml/json）</td><td><span style="color:#34d399">P0 ✓</span></td><td>批量迁移需求</td></tr>
+            <tr><td>认证配置 profile（用户名/密钥对一次配置多处引用）</td><td><span style="color:#60a5fa">可选</span></td><td>小团队有用，个人用户少用。P1 评估</td></tr>
+            <tr><td>会话排序：手动/字母/最近使用</td><td><span style="color:#34d399">P0 ✓</span></td><td></td></tr>
+            <tr><td>会话搜索/过滤</td><td><span style="color:#34d399">P0 ✓</span></td><td></td></tr>
+
+            <tr><td rowspan="8"><strong>认证与连接</strong></td><td>密码认证</td><td><span style="color:#34d399">P0 ✓</span></td><td></td></tr>
+            <tr><td>SSH 密钥对（RSA/ED25519/ECDSA）</td><td><span style="color:#34d399">P0 ✓</span></td><td>含 passphrase 加密存储</td></tr>
+            <tr><td>跳板机/代理 Jump Host Proxy</td><td><span style="color:#60a5fa">可选</span></td><td>实现复杂度中等。P1 加</td></tr>
+            <tr><td>多因素认证（Google Authenticator 接 PAM）</td><td><span style="color:#34d399">P0 ✓</span></td><td>提示输入验证码</td></tr>
+            <tr><td>SSH Agent 转发（ssh-agent / pageant）</td><td><span style="color:#34d399">P0 ✓</span></td><td>Windows 上兼容 pageant</td></tr>
+            <tr><td>SOCKS4/5 / HTTP 代理</td><td><span style="color:#60a5fa">可选</span></td><td>代理翻墙场景用。P1 加</td></tr>
+            <tr><td>IPv6 连接</td><td><span style="color:#34d399">P0 ✓</span></td><td>配置层面支持</td></tr>
+            <tr><td>连接超时 / 心跳（TCP keepalive）</td><td><span style="color:#34d399">P0 ✓</span></td><td>FR-02 已覆盖</td></tr>
+
+            <tr><td rowspan="6"><strong>终端体验</strong></td><td>True Type 字体渲染（Consolas / Cascadia Code）</td><td><span style="color:#34d399">P0 ✓</span></td><td></td></tr>
+            <tr><td>深色/浅色主题 + 自定义配色方案</td><td><span style="color:#34d399">P0 ✓</span></td><td>FinalShell 风格默认深色</td></tr>
+            <tr><td>鼠标行为自定义（复制/粘贴选键）</td><td><span style="color:#34d399">P0 ✓</span></td><td>Windows 默认左键选 = 复制 / 右键 = 粘贴</td></tr>
+            <tr><td>多光标批量输入（同时向多个会话发命令）</td><td><span style="color:#ef4444">砍掉</span></td><td>Chena-Shell 的核心是 AI 接管一个会话，不是多会话广播。AI 会帮你自动跑多个会话的命令</td></tr>
+            <tr><td>水平/垂直分屏（一个标签页里两个终端）</td><td><span style="color:#ef4444">砍掉</span></td><td>标签页模式够用，分屏增加 PTY 复杂度</td></tr>
+            <tr><td>标签页管理（Tab Manager 树状组织 / 隐藏多余标签）</td><td><span style="color:#34d399">P0 ✓</span></td><td>左侧会话列表 + 标签页关闭按钮 + 关闭确认</td></tr>
+
+            <tr><td rowspan="5"><strong>文件传输</strong></td><td>内嵌 SFTP 面板（FR-04）</td><td><span style="color:#34d399">P0 ✓</span></td><td>底部面板 tab 形式</td></tr>
+            <tr><td>SFTP 断点续传</td><td><span style="color:#34d399">P0 ✓</span></td><td>TBD-04 决策：进 P0</td></tr>
+            <tr><td>SFTP 传输进度条 / 速率</td><td><span style="color:#34d399">P0 ✓</span></td><td></td></tr>
+            <tr><td>Xmodem / Ymodem / Zmodem（终端内 rz/sz）</td><td><span style="color:#60a5fa">可选</span></td><td>传统 Zmodem 有场景但 SFTP 面板更优。P1 评估</td></tr>
+            <tr><td>AI 调用的文件传输（FR-05）</td><td><span style="color:#34d399">P0 ✓</span></td><td>独立于 SFTP 面板的 AI 接口，受会话级 ai_policy 控制</td></tr>
+
+            <tr><td rowspan="4"><strong>日志与记录</strong></td><td>会话日志（保存终端输入输出到本地文件）</td><td><span style="color:#34d399">P0 ✓</span></td><td><strong>明确 P0</strong> — 每次会话自动生成 <code>logs/YYYY-MM-DD/会话名.log</code>，纯文本或 HTML 带配色</td></tr>
+            <tr><td>日志自动命名 / 路径自定义</td><td><span style="color:#34d399">P0 ✓</span></td><td>全局设置里改路径模板</td></tr>
+            <tr><td>AI 活动日志（AI attach/exec/detach 全记录）</td><td><span style="color:#34d399">P0 ✓</span></td><td>嵌入 AI 活动面板 + 可导出 CSV/JSON</td></tr>
+            <tr><td>会话日志导出（当前会话保存到文件）</td><td><span style="color:#34d399">P0 ✓</span></td><td>右键菜单 "保存当前终端到文件"</td></tr>
+
+            <tr><td rowspan="3"><strong>端口转发</strong></td><td>本地 → 远端端口转发（-L）</td><td><span style="color:#34d399">P0 ✓</span></td><td>FR-06 已覆盖</td></tr>
+            <tr><td>远端 → 本地端口转发（-R）</td><td><span style="color:#60a5fa">可选</span></td><td>场景少。P1</td></tr>
+            <tr><td>动态端口转发 SOCKS（-D）</td><td><span style="color:#60a5fa">可选</span></td><td>翻墙场景。P1</td></tr>
+
+            <tr><td rowspan="4"><strong>自动化</strong></td><td>脚本录制/回放（自动生成 Python/JavaScript 脚本）</td><td><span style="color:#ef4444">砍掉</span></td><td>Chena-Shell 的 AI attach 模式替代 — 你不会再需要手动录脚本，AI 会自己来</td></tr>
+            <tr><td>触发器（终端出现特定字符串自动执行动作）</td><td><span style="color:#ef4444">砍掉</span></td><td>同上，AI attach 更灵活</td></tr>
+            <tr><td>定时任务调度</td><td><span style="color:#ef4444">砍掉</span></td><td>系统 cron/task scheduler 更合适</td></tr>
+            <tr><td>快速命令/片段收藏（Snippets）</td><td><span style="color:#34d399">P0 ✓</span></td><td>左侧面板底部快速命令收藏，一键发送</td></tr>
+
+            <tr><td rowspan="3"><strong>其他</strong></td><td>快捷键（可自定义）</td><td><span style="color:#34d399">P0 ✓</span></td><td>覆盖连接/断开/新建标签/复制/粘贴/搜索 AI 活动等</td></tr>
+            <tr><td>RDP / X11 / Telnet 等非 SSH 协议</td><td><span style="color:#ef4444">砍掉</span></td><td>产品定位纯 SSH。远程桌面用 Windows RDP 客户端</td></tr>
+            <tr><td>加密存储（密码/密钥 passphrase AES-256-GCM）</td><td><span style="color:#34d399">P0 ✓</span></td><td>安全基线</td></tr>
+          </table>
+
+          <p style="color:var(--text-dim);font-size:12px;margin-top:8px">汇总：<strong>P0 共 27 项（其中日志功能明确必做）</strong>，可选 6 项（P1 评估），砍掉 6 项（AI attach 模式替代或场景重合）。砍掉项的核心理由：Chena-Shell 的核心差异是 AI attach 访客模式，不需要脚本录制、触发器、多会话广播等传统 SSH 客户端的自动化功能。</p>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="link-hint" id="link-hint"></div>
+
+<script>
+  // ===== PRD Tab Switching =====
+  function switchPrdTab(el, id){
+    document.querySelectorAll('.prd-tabs .ptab').forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.prd-body > div').forEach(d=>d.style.display='none');
+    document.getElementById(id).style.display='';
+  }
+
+  // ===== Text / Split mode =====
+  const btnSplit = document.getElementById('btn-split');
+  const btnText = document.getElementById('btn-text');
+  btnSplit.addEventListener('click', () => {
+    document.body.classList.remove('text-mode');
+    btnSplit.classList.add('active'); btnText.classList.remove('active');
+  });
+  btnText.addEventListener('click', () => {
+    document.body.classList.add('text-mode');
+    btnText.classList.add('active'); btnSplit.classList.remove('active');
+  });
+
+  // ===== Prototype ↔ PRD linkage =====
+  const linkHint = document.getElementById('link-hint');
+
+  function focusFeature(id){
+    // scroll right-side into view + highlight
+    const feat = document.getElementById(id);
+    if(!feat) return;
+    feat.scrollIntoView({behavior:'smooth', block:'center'});
+    document.querySelectorAll('.feature-section').forEach(s=>s.classList.remove('focused'));
+    feat.classList.add('focused');
+    // switch to detail tab if needed
+    const parent = feat.parentElement.id;
+    if(parent && parent !== 'prd-detail'){
+      document.querySelectorAll('.prd-tabs .ptab').forEach(t=>t.classList.remove('active'));
+      // find detail tab
+      document.querySelectorAll('.prd-tabs .ptab').forEach(t=>{
+        if(t.getAttribute('onclick','').includes('prd-detail')) t.classList.add('active');
+      });
+      document.querySelectorAll('.prd-body > div').forEach(d=>d.style.display='none');
+      document.getElementById('prd-detail').style.display='';
+    }
+  }
+
+  document.addEventListener('click', e=>{
+    const protoEl = e.target.closest('.proto-link, [data-link]');
+    if(protoEl){
+      const id = protoEl.getAttribute('data-link');
+      if(id && id.startsWith('feature-')){
+        focusFeature(id);
+        linkHint.textContent = '已跳转到 ' + id + ' — 点击原型区域可定位回 PRD';
+        linkHint.classList.add('show');
+        setTimeout(()=>linkHint.classList.remove('show'), 2500);
+      }
+    }
+  });
+
+  // Click feature section → highlight prototype area
+  document.addEventListener('click', e=>{
+    const feat = e.target.closest('.feature-section');
+    if(feat){
+      const id = feat.id;
+      document.querySelectorAll('.feature-section').forEach(s=>s.classList.remove('focused'));
+      feat.classList.add('focused');
+      // briefly show prototype element focus via border
+      document.querySelectorAll('[data-link="'+id+'"]').forEach(el=>{
+        el.style.outline = '2px solid #4f8cff';
+        setTimeout(()=>el.style.outline='', 1500);
+      });
+    }
+  });
+
+  // ===== Bottom panel switching =====
+  document.querySelectorAll('.bp-tab').forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      document.querySelectorAll('.bp-tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');
+      const link = tab.getAttribute('data-link');
+      document.querySelectorAll('.bp-pane').forEach(p=>{
+        p.classList.toggle('active', p.getAttribute('data-link')===link);
+      });
+    });
+  });
+
+  // ===== Config Dialog =====
+  function openCfg(){ document.getElementById('cfg-dialog').classList.add('show'); }
+  function closeCfg(){ document.getElementById('cfg-dialog').classList.remove('show'); }
+  function switchCfgTab(el, id){
+    document.querySelectorAll('.cfg-tab').forEach(t=>t.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.cfg-tab-content').forEach(c=>c.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  // ===== AI confirm modal (auto-show as demo) =====
+  setTimeout(()=>{
+    document.getElementById('confirm-modal').classList.add('show');
+  }, 8000);
+  function hideConfirm(){ document.getElementById('confirm-modal').classList.remove('show'); }
+
+  // ===== Toggle switches =====
+  document.addEventListener('click', e=>{
+    if(e.target.classList.contains('switch')){
+      e.target.classList.toggle('on');
+    }
+  });
+
+  // ===== Toggle welcome empty state demo =====
+  // (double-click the terminal empty area to toggle welcome)
+  document.querySelector('.term-stage').addEventListener('dblclick', ()=>{
+    document.getElementById('welcome-empty').classList.toggle('show');
+  });
+
+  // Click welcome empty's "新建会话" → opens config dialog
+  document.getElementById('welcome-empty').addEventListener('click', e=>{
+    if(e.target.textContent==='新建会话' || e.target.textContent==='导入已有会话'){
+      document.getElementById('welcome-empty').classList.remove('show');
+      openCfg();
+    }
+  });
+</script>
+</body>
+</html>

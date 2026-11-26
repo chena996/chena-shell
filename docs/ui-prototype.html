@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chena-Shell · 高保真原型</title>
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Round" rel="stylesheet">
+<style>
+:root {
+  --md-primary:#4F46E5; --md-on-primary:#FFF;
+  --md-primary-container:#E0E7FF; --md-on-primary-container:#1E1B4B;
+  --md-secondary:#7C3AED; --md-on-secondary:#FFF;
+  --md-surface:#FBF9FF; --md-surface-bright:#FEF7FF;
+  --md-surface-container-lowest:#FFF;
+  --md-surface-container-low:#F7F2FA;
+  --md-surface-container:#F3EDF7;
+  --md-surface-container-high:#ECE6F0;
+  --md-surface-container-highest:#E6E0E9;
+  --md-on-surface:#1D1B20; --md-on-surface-variant:#49454F;
+  --md-outline:#79747E; --md-outline-variant:#CAC4D0;
+  --md-background:#FEF7FF; --md-error:#B3261E;
+  --md-success:#2E7D32; --md-warning:#ED6C02;
+  --terminal-bg:#FAFAFA; --terminal-fg:#1a1a1a;
+  --ai-accent:#7C3AED; --ai-accent-soft:#EDE9FE;
+  --human-accent:#059669; --human-accent-soft:#D1FAE5;
+  --md-easing-standard:cubic-bezier(.4,0,.2,1);
+  --md-easing-emphasized:cubic-bezier(.2,0,0,1);
+}
+[data-theme="dark"] {
+  --md-primary:#B4B0FF; --md-on-primary:#2C2768;
+  --md-primary-container:#433D8B; --md-on-primary-container:#E4DFFF;
+  --md-secondary:#D0BCFF;
+  --md-surface:#141218; --md-surface-bright:#3B383E;
+  --md-surface-container-lowest:#0F0D13;
+  --md-surface-container-low:#1D1B20;
+  --md-surface-container:#211F26;
+  --md-surface-container-high:#2B2930;
+  --md-surface-container-highest:#36343B;
+  --md-on-surface:#E6E1E5; --md-on-surface-variant:#CAC4D0;
+  --md-outline:#938F99; --md-outline-variant:#49454F;
+  --md-background:#141218; --md-error:#F2B8B5;
+  --md-success:#81C784; --md-warning:#FFB74D;
+  --terminal-bg:#0D1117; --terminal-fg:#E6E1E5;
+  --ai-accent:#D0BCFF; --ai-accent-soft:#4A2380;
+  --human-accent:#6EE7B7; --human-accent-soft:#064E3B;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { height:100%; overflow:hidden; }
+body {
+  font-family:'Google Sans','Roboto',-apple-system,sans-serif;
+  font-size:13px; color:var(--md-on-surface);
+  background:var(--md-background);
+  display:flex; flex-direction:column;
+  transition:background .3s var(--md-easing-standard), color .3s var(--md-easing-standard);
+}
+button { font-family:inherit; cursor:pointer; }
+.material-icons-round { font-feature-settings:'liga'; }
+
+/* ============ APP BAR ============ */
+.appbar {
+  height:64px; flex-shrink:0;
+  background:var(--md-surface);
+  border-bottom:1px solid var(--md-outline-variant);
+  display:flex; align-items:center; gap:14px;
+  padding:0 20px;
+}
+.appbar-logo { display:flex; align-items:center; gap:10px; font-weight:600; font-size:15px; letter-spacing:-.01em; }
+.appbar-logo-icon { width:36px; height:36px; border-radius:12px; background:linear-gradient(135deg,var(--md-primary),var(--md-secondary)); color:#FFF; display:grid; place-items:center; }
+.appbar-search { flex:1; max-width:480px; height:40px; border-radius:20px; background:var(--md-surface-container-high); border:1px solid var(--md-outline-variant); display:flex; align-items:center; padding:0 14px; gap:10px; color:var(--md-on-surface-variant); font-size:13px; transition:border-color .15s,background .15s; }
+.appbar-search:focus-within { border-color:var(--md-primary); background:var(--md-surface-container); }
+.appbar-search input { flex:1; background:transparent; border:0; outline:none; color:var(--md-on-surface); font-family:inherit; font-size:13px; }
+.appbar-actions { display:flex; align-items:center; gap:6px; }
+.appbar-icon-btn {
+  width:40px; height:40px; border-radius:12px; border:0; background:transparent;
+  display:grid; place-items:center; color:var(--md-on-surface-variant);
+  transition:background .15s,color .15s;
+}
+.appbar-icon-btn:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+.mcp-chip {
+  display:flex; align-items:center; gap:8px; padding:6px 14px;
+  border-radius:16px; border:1px solid var(--md-outline-variant);
+  background:var(--md-surface-container-low); font-size:12px; font-weight:500;
+}
+.mcp-dot { width:8px; height:8px; border-radius:50%; background:var(--md-success); position:relative; }
+.mcp-dot::after { content:''; position:absolute; inset:-3px; border-radius:50%; background:var(--md-success); opacity:.35; animation:pulse 1.8s infinite; }
+@keyframes pulse { 0%,100%{transform:scale(1);opacity:.35} 50%{transform:scale(1.8);opacity:0} }
+
+/* ============ MAIN LAYOUT ============ */
+.main { flex:1; display:flex; min-height:0; }
+
+/* ============ SIDEBAR ============ */
+.sidebar {
+  width:260px; flex-shrink:0;
+  background:var(--md-surface);
+  border-right:1px solid var(--md-outline-variant);
+  display:flex; flex-direction:column;
+  overflow:hidden;
+}
+.sidebar-btn-new {
+  margin:12px 12px 6px; width:auto; padding:10px 16px; border-radius:14px;
+  border:1px solid var(--md-outline); background:var(--md-surface-container-low);
+  color:var(--md-on-surface); font-family:inherit; font-weight:500; font-size:13px;
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  transition:background .15s,border-color .15s;
+}
+.sidebar-btn-new:hover { background:var(--md-surface-container); border-color:var(--md-primary); }
+.sidebar-content { flex:1; overflow-y:auto; padding:4px 8px 8px; }
+.sidebar-section-title {
+  padding:18px 12px 6px; font-size:11px; font-weight:600;
+  color:var(--md-on-surface-variant); letter-spacing:.06em; text-transform:uppercase;
+}
+.sidebar-group { margin-bottom:2px; }
+.sidebar-group-header {
+  display:flex; align-items:center; gap:4px; padding:6px 8px;
+  font-size:13px; font-weight:500; color:var(--md-on-surface);
+  cursor:pointer; border-radius:10px; transition:background .15s;
+}
+.sidebar-group-header:hover { background:var(--md-surface-container-high); }
+.sidebar-group-header .material-icons-round { font-size:16px; color:var(--md-on-surface-variant); transition:transform .2s; }
+.sidebar-group.collapsed .sidebar-group-header .material-icons-round { transform:rotate(-90deg); }
+.sidebar-group-items { overflow:hidden; max-height:1000px; transition:max-height .25s var(--md-easing-emphasized),opacity .2s; opacity:1; padding-left:8px; }
+.sidebar-group.collapsed .sidebar-group-items { max-height:0; opacity:0; }
+.session-item {
+  display:flex; align-items:center; gap:10px; padding:7px 10px;
+  border-radius:10px; cursor:pointer; font-size:13px;
+  transition:background .15s; position:relative;
+}
+.session-item:hover { background:var(--md-surface-container-high); }
+.session-item.active { background:var(--md-primary-container); color:var(--md-on-primary-container); font-weight:500; }
+.session-item-icon { width:28px; height:28px; border-radius:8px; background:var(--md-surface-container-highest); display:grid; place-items:center; flex-shrink:0; }
+.session-item.active .session-item-icon { background:rgba(0,0,0,.08); }
+.session-item-info { flex:1; min-width:0; }
+.session-item-name { font-weight:500; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.session-item-host { font-size:11px; color:var(--md-on-surface-variant); margin-top:1px; }
+.session-item.active .session-item-host { color:rgba(0,0,0,.55); }
+.session-item-status { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.session-item-status.online { background:var(--md-success); box-shadow:0 0 0 3px color-mix(in srgb,var(--md-success) 20%,transparent); }
+.session-item-status.offline { background:var(--md-outline); }
+.session-item-status.reconnecting { background:var(--md-warning); animation:blink 1.2s infinite; }
+.session-badge-ai {
+  font-size:9px; padding:2px 5px; border-radius:6px;
+  background:var(--ai-accent); color:#FFF; font-weight:600;
+  letter-spacing:.04em; flex-shrink:0;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+.sidebar-bottom {
+  border-top:1px solid var(--md-outline-variant);
+  padding:8px; display:flex; gap:4px;
+}
+.sidebar-footer-btn {
+  flex:1; padding:8px 6px; border-radius:10px; border:0;
+  background:transparent; color:var(--md-on-surface-variant);
+  font-size:11px; display:flex; flex-direction:column; align-items:center; gap:2px;
+  transition:background .15s,color .15s;
+}
+.sidebar-footer-btn:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+.sidebar-footer-btn .material-icons-round { font-size:18px; }
+
+/* ============ WORKSPACE ============ */
+.workspace { flex:1; display:flex; flex-direction:column; min-width:0; }
+
+/* TAB BAR */
+.tabbar {
+  height:44px; flex-shrink:0;
+  background:var(--md-surface);
+  border-bottom:1px solid var(--md-outline-variant);
+  display:flex; align-items:stretch; padding:0 8px; gap:2px;
+  overflow-x:auto;
+}
+.tab-item {
+  display:flex; align-items:center; gap:8px; padding:0 14px;
+  border-radius:10px 10px 0 0; cursor:pointer;
+  font-size:13px; font-weight:500;
+  color:var(--md-on-surface-variant); position:relative;
+  min-width:140px; max-width:220px;
+  transition:background .15s,color .15s;
+  border-bottom:2px solid transparent;
+}
+.tab-item:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+.tab-item.active {
+  background:var(--md-surface-container); color:var(--md-on-surface);
+  border-bottom-color:var(--md-primary);
+}
+.tab-item-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.tab-item-close {
+  width:20px; height:20px; border-radius:50%; border:0; background:transparent;
+  display:grid; place-items:center; color:inherit; font-size:12px;
+  transition:background .15s;
+}
+.tab-item-close:hover { background:rgba(0,0,0,.1); }
+.tab-add {
+  width:32px; height:32px; border-radius:8px; border:0; background:transparent;
+  display:grid; place-items:center; color:var(--md-on-surface-variant);
+  align-self:center; margin-left:4px;
+}
+.tab-add:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+
+/* TERMINAL TOOLBAR */
+.terminal-toolbar {
+  height:38px; flex-shrink:0;
+  background:var(--md-surface-container);
+  border-bottom:1px solid var(--md-outline-variant);
+  display:flex; align-items:center; padding:0 12px; gap:10px;
+}
+.term-path {
+  display:flex; align-items:center; gap:6px; font-family:'JetBrains Mono',monospace;
+  font-size:12px; color:var(--md-on-surface-variant);
+}
+.term-path .sep { opacity:.4; }
+.term-chip {
+  display:inline-flex; align-items:center; gap:6px; padding:3px 10px;
+  border-radius:12px; font-size:11px; font-weight:500;
+}
+.term-chip.ai { background:var(--ai-accent-soft); color:var(--ai-accent); }
+.term-chip.human { background:var(--human-accent-soft); color:var(--human-accent); }
+.term-chip-close { background:transparent; border:0; color:inherit; cursor:pointer; font-size:14px; padding:0 0 0 4px; }
+.term-spacer { flex:1; }
+.term-btn {
+  height:28px; padding:0 10px; border-radius:8px; border:0; background:transparent;
+  color:var(--md-on-surface-variant); font-size:12px; font-weight:500;
+  display:flex; align-items:center; gap:5px;
+  transition:background .15s,color .15s;
+}
+.term-btn:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+.term-btn .material-icons-round { font-size:16px; }
+.term-status-pill {
+  display:flex; align-items:center; gap:6px; padding:3px 10px;
+  border-radius:10px; background:var(--md-surface-container-high);
+  font-size:11px; color:var(--md-on-surface-variant);
+}
+
+/* TERMINAL */
+.terminal {
+  flex:1; min-height:0; overflow:auto;
+  background:var(--terminal-bg); color:var(--terminal-fg);
+  padding:16px 18px;
+  font-family:'JetBrains Mono',monospace; font-size:13px; line-height:1.65;
+  position:relative;
+}
+.terminal-scroll-fade {
+  position:absolute; inset:0; pointer-events:none;
+  background:linear-gradient(transparent 90%,var(--terminal-bg));
+  opacity:0; transition:opacity .2s;
+}
+.term-line { display:flex; gap:6px; white-space:pre-wrap; word-break:break-all; }
+.term-prompt { color:var(--md-primary); font-weight:500; flex-shrink:0; }
+.term-cmd { flex:1; }
+.term-cmd.ai-cmd {
+  background:var(--ai-accent-soft); color:var(--ai-accent);
+  border-radius:4px; padding:1px 6px;
+  border-left:3px solid var(--ai-accent);
+  font-weight:500;
+}
+.term-cmd.ai-cmd::before {
+  content:'🤖 AI'; font-size:10px; margin-right:8px;
+  background:var(--ai-accent); color:#FFF; padding:1px 4px;
+  border-radius:3px; font-weight:700;
+}
+.term-output { padding-left:12px; opacity:.85; white-space:pre-wrap; }
+.term-cursor { animation:blink 1s infinite; color:var(--md-primary); }
+.term-section-sep {
+  margin:10px 0; padding:6px 10px; border-radius:6px;
+  font-size:11px; color:var(--md-on-surface-variant);
+  font-family:'Google Sans',sans-serif; letter-spacing:.02em;
+}
+.term-section-sep.ai-start { background:color-mix(in srgb,var(--ai-accent) 12%,transparent); border-left:3px solid var(--ai-accent); color:var(--ai-accent); }
+.term-section-sep.ai-end { background:color-mix(in srgb,var(--human-accent) 12%,transparent); border-left:3px solid var(--human-accent); color:var(--human-accent); }
+
+/* TERM HIGHLIGHT TOKENS */
+.thl { font-weight:500; }
+.thl-red { color:#EF4444; }
+.thl-green { color:#10B981; }
+.thl-yellow { color:#F59E0B; }
+.thl-blue { color:#3B82F6; }
+.thl-purple { color:#8B5CF6; }
+.thl-cyan { color:#06B6D4; }
+.thl-gray { color:color-mix(in srgb,currentColor 55%,transparent); font-weight:400; }
+.thl-dim { opacity:.55; font-weight:400; }
+.thl-bold { font-weight:700; }
+.thl-ip { color:#3B82F6; font-weight:500; }
+.thl-port { color:#8B5CF6; font-weight:600; font-family:'JetBrains Mono',monospace; }
+.thl-pid { color:#F59E0B; font-weight:500; }
+.thl-path { color:#10B981; font-family:'JetBrains Mono',monospace; }
+.thl-perm-r { color:#EF4444; font-weight:600; }
+.thl-perm-x { color:#10B981; font-weight:600; }
+.thl-perm { color:#6B7280; font-family:'JetBrains Mono',monospace; }
+.thl-lvl-err { color:#EF4444; font-weight:600; background:color-mix(in srgb,#EF4444 12%,transparent); padding:0 5px; border-radius:3px; }
+.thl-lvl-warn { color:#F59E0B; font-weight:600; background:color-mix(in srgb,#F59E0B 12%,transparent); padding:0 5px; border-radius:3px; }
+.thl-lvl-info { color:#3B82F6; font-weight:600; background:color-mix(in srgb,#3B82F6 12%,transparent); padding:0 5px; border-radius:3px; }
+.thl-sock-listen { color:#10B981; font-weight:600; }
+.thl-cmd { color:#8B5CF6; font-family:'JetBrains Mono',monospace; font-weight:500; }
+.thl-kw { color:#7C3AED; font-weight:600; }
+.thl-str { color:#059669; }
+.thl-num { color:#DB2777; font-weight:500; }
+.thl-dot-active { color:#10B981; font-size:16px; font-weight:900; }
+.thl-dot-failed { color:#EF4444; font-size:16px; font-weight:900; }
+.thl-dot-inactive { color:#6B7280; font-size:16px; font-weight:900; }
+.thl-bracket { color:#EF4444; font-weight:600; }
+
+/* shell command tokens */
+.shell { font-family:'JetBrains Mono',monospace; }
+.shell .sh-bin { color:#3B82F6; font-weight:600; }
+.shell .sh-flag { color:#F59E0B; font-weight:500; }
+.shell .sh-arg { color:var(--terminal-fg); }
+.shell .sh-path { color:#10B981; font-weight:400; }
+.shell .sh-pipe { color:#8B5CF6; font-weight:700; }
+.shell .sh-redir { color:#EF4444; font-weight:600; }
+.shell .sh-str { color:#059669; }
+
+/* BOTTOM PANEL */
+.bottom-panel {
+  height:300px; flex-shrink:0;
+  background:var(--md-surface);
+  border-top:1px solid var(--md-outline-variant);
+  display:flex; flex-direction:column;
+}
+.panel-tabs {
+  height:40px; flex-shrink:0;
+  display:flex; border-bottom:1px solid var(--md-outline-variant);
+  padding:0 8px; gap:2px;
+}
+.panel-tab {
+  padding:0 16px; border:0; background:transparent;
+  color:var(--md-on-surface-variant); font-family:inherit;
+  font-size:12px; font-weight:500; cursor:pointer;
+  position:relative; display:flex; align-items:center; gap:6px;
+  border-radius:8px 8px 0 0;
+  transition:color .15s,background .15s;
+}
+.panel-tab:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+.panel-tab.active { color:var(--md-primary); }
+.panel-tab.active::after {
+  content:''; position:absolute; bottom:-1px; left:8px; right:8px;
+  height:2px; background:var(--md-primary); border-radius:1px 1px 0 0;
+}
+.panel-tab-badge {
+  font-size:10px; padding:1px 6px; border-radius:8px;
+  background:var(--ai-accent); color:#FFF; font-weight:600;
+}
+.panel-body { flex:1; min-height:0; overflow:auto; }
+
+/* MONITOR TAB */
+.monitor-grid {
+  display:grid; grid-template-columns:repeat(5,1fr);
+  gap:12px; padding:14px; height:100%;
+}
+.mon-card {
+  background:var(--md-surface-container); border-radius:16px;
+  padding:12px; display:flex; flex-direction:column; gap:6px;
+  cursor:pointer; transition:transform .15s,box-shadow .15s;
+}
+.mon-card:hover { transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.08); }
+.mon-header { display:flex; align-items:center; gap:8px; }
+.mon-icon { width:28px; height:28px; border-radius:8px; display:grid; place-items:center; font-size:16px; }
+.mon-icon.cpu { background:color-mix(in srgb,#3B82F6 15%,transparent); color:#3B82F6; }
+.mon-icon.mem { background:color-mix(in srgb,#10B981 15%,transparent); color:#10B981; }
+.mon-icon.disk { background:color-mix(in srgb,#F59E0B 15%,transparent); color:#F59E0B; }
+.mon-icon.net { background:color-mix(in srgb,#8B5CF6 15%,transparent); color:#8B5CF6; }
+.mon-icon.load { background:color-mix(in srgb,#EF4444 15%,transparent); color:#EF4444; }
+.mon-name { font-size:11px; font-weight:500; color:var(--md-on-surface-variant); }
+.mon-value { font-size:22px; font-weight:700; color:var(--md-on-surface); letter-spacing:-.02em; font-family:'JetBrains Mono',monospace; }
+.mon-bar { height:6px; background:var(--md-surface-container-highest); border-radius:3px; overflow:hidden; }
+.mon-bar-fill { height:100%; border-radius:3px; transition:width .6s var(--md-easing-emphasized); }
+.mon-bar-fill.green { background:var(--md-success); }
+.mon-bar-fill.yellow { background:var(--md-warning); }
+.mon-bar-fill.red { background:var(--md-error); }
+.mon-sub { font-size:11px; color:var(--md-on-surface-variant); display:flex; justify-content:space-between; }
+.mon-spark { height:32px; width:100%; }
+
+/* SFTP TAB */
+.sftp-layout { display:grid; grid-template-columns:1fr 1fr 200px; height:100%; }
+.sftp-pane { display:flex; flex-direction:column; border-right:1px solid var(--md-outline-variant); }
+.sftp-pane:last-child { border-right:0; background:var(--md-surface-container-low); }
+.sftp-header {
+  display:flex; align-items:center; gap:8px; padding:8px 12px;
+  border-bottom:1px solid var(--md-outline-variant);
+  font-size:12px;
+}
+.sftp-header .material-icons-round { font-size:16px; color:var(--md-on-surface-variant); }
+.sftp-path { flex:1; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--md-on-surface-variant); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sftp-toolbar { display:flex; gap:2px; }
+.sftp-toolbar button {
+  width:26px; height:26px; border-radius:6px; border:0; background:transparent;
+  display:grid; place-items:center; color:var(--md-on-surface-variant);
+}
+.sftp-toolbar button:hover { background:var(--md-surface-container-high); color:var(--md-on-surface); }
+.sftp-list { flex:1; overflow:auto; font-family:'JetBrains Mono',monospace; font-size:12px; }
+.sftp-row {
+  display:grid; grid-template-columns:24px 1fr 80px 90px; gap:8px;
+  padding:4px 12px; align-items:center; cursor:pointer;
+}
+.sftp-row:hover { background:var(--md-surface-container-high); }
+.sftp-row.selected { background:var(--md-primary-container); }
+.sftp-row .row-icon { width:20px; height:20px; display:grid; place-items:center; }
+.sftp-row .row-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sftp-row .row-size { text-align:right; color:var(--md-on-surface-variant); font-size:11px; }
+.sftp-row .row-date { text-align:right; color:var(--md-on-surface-variant); font-size:11px; }
+.row-icon.folder { color:#F59E0B; }
+.row-icon.file { color:#6366F1; }
+
+/* SFTP TRANSFER QUEUE */
+.transfer-queue { padding:8px; font-size:11px; display:flex; flex-direction:column; gap:6px; }
+.tq-title { font-weight:600; color:var(--md-on-surface-variant); padding:4px 4px 6px; font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.tq-item { padding:6px 8px; background:var(--md-surface-container); border-radius:8px; display:flex; flex-direction:column; gap:4px; }
+.tq-top { display:flex; justify-content:space-between; align-items:center; }
+.tq-name { font-weight:500; font-size:11px; font-family:'JetBrains Mono',monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+.tq-status { font-size:10px; padding:1px 5px; border-radius:4px; font-weight:600; }
+.tq-status.active { background:color-mix(in srgb,#10B981 20%,transparent); color:#059669; }
+.tq-status.queued { background:color-mix(in srgb,#8B5CF6 20%,transparent); color:#7C3AED; }
+.tq-status.paused { background:color-mix(in srgb,#F59E0B 20%,transparent); color:#D97706; }
+.tq-status.done { background:color-mix(in srgb,#3B82F6 20%,transparent); color:#2563EB; }
+.tq-status.error { background:color-mix(in srgb,#EF4444 20%,transparent); color:#DC2626; }
+.tq-bar { height:3px; background:var(--md-surface-container-highest); border-radius:2px; overflow:hidden; }
+.tq-bar-fill { height:100%; background:var(--md-primary); transition:width .3s; }
+.tq-info { display:flex; justify-content:space-between; color:var(--md-on-surface-variant); font-size:10px; }
+
+/* AI ACTIVITY TAB */
+.ai-activity-layout { display:flex; height:100%; }
+.ai-activity-events { flex:1; overflow:auto; padding:12px; }
+.ai-timeline { display:flex; flex-direction:column; gap:2px; position:relative; }
+.ai-timeline::before { content:''; position:absolute; left:18px; top:8px; bottom:8px; width:2px; background:var(--md-outline-variant); }
+.ai-event {
+  display:flex; gap:12px; padding:10px 12px; border-radius:12px;
+  position:relative; margin-left:0; transition:background .15s;
+  cursor:pointer;
+}
+.ai-event:hover { background:var(--md-surface-container-high); }
+.ai-event-icon {
+  width:36px; height:36px; border-radius:10px; display:grid; place-items:center;
+  flex-shrink:0; position:relative; z-index:1;
+}
+.ai-event-icon.exec { background:var(--ai-accent-soft); color:var(--ai-accent); }
+.ai-event-icon.start { background:color-mix(in srgb,var(--human-accent) 20%,transparent); color:var(--human-accent); }
+.ai-event-icon.end { background:color-mix(in srgb,#3B82F6 20%,transparent); color:#2563EB; }
+.ai-event-icon.blocked { background:color-mix(in srgb,var(--md-error) 20%,transparent); color:var(--md-error); }
+.ai-event-content { flex:1; min-width:0; }
+.ai-event-title { font-size:13px; font-weight:500; display:flex; gap:8px; align-items:center; }
+.ai-event-args {
+  font-family:'JetBrains Mono',monospace; font-size:12px;
+  background:var(--terminal-bg); color:var(--terminal-fg);
+  padding:6px 10px; border-radius:6px; margin-top:6px;
+  white-space:pre-wrap; word-break:break-all;
+  max-height:100px; overflow:hidden;
+}
+.ai-event-meta { font-size:11px; color:var(--md-on-surface-variant); margin-top:4px; display:flex; gap:12px; }
+.ai-tag {
+  display:inline-block; font-size:10px; padding:2px 7px; border-radius:6px;
+  font-weight:600; letter-spacing:.02em;
+}
+.ai-tag.ok { background:color-mix(in srgb,var(--md-success) 20%,transparent); color:var(--md-success); }
+.ai-tag.blocked { background:color-mix(in srgb,var(--md-error) 20%,transparent); color:var(--md-error); }
+.ai-tag.confirm { background:color-mix(in srgb,var(--md-warning) 20%,transparent); color:var(--md-warning); }
+.ai-tag.waiting { background:color-mix(in srgb,#3B82F6 20%,transparent); color:#2563EB; }
+
+/* PORT FORWARD TAB */
+.pf-header { display:flex; justify-content:space-between; align-items:center; padding:12px 14px; }
+.pf-title { font-weight:500; font-size:14px; }
+.pf-list { padding:0 12px 12px; display:flex; flex-direction:column; gap:6px; }
+.pf-item {
+  display:grid; grid-template-columns:24px 1fr auto auto auto; gap:10px;
+  padding:10px 12px; background:var(--md-surface-container); border-radius:12px;
+  align-items:center;
+}
+.pf-dot { width:10px; height:10px; border-radius:50%; background:var(--md-success); }
+.pf-info { display:flex; flex-direction:column; gap:2px; }
+.pf-name { font-weight:500; font-size:13px; }
+.pf-detail { font-size:11px; color:var(--md-on-surface-variant); font-family:'JetBrains Mono',monospace; }
+.pf-switch { width:36px; height:20px; border-radius:10px; border:0; background:var(--md-primary); position:relative; cursor:pointer; transition:background .2s; }
+.pf-switch::after { content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#FFF; transition:left .2s; }
+.pf-switch.off { background:var(--md-outline); }
+.pf-switch.off::after { left:18px; }
+
+/* LOG TAB */
+.log-tabs { display:flex; gap:2px; padding:8px 14px; border-bottom:1px solid var(--md-outline-variant); }
+.log-tab-btn {
+  padding:6px 14px; border-radius:18px; border:0; background:transparent;
+  color:var(--md-on-surface-variant); font-size:12px; font-weight:500;
+  font-family:inherit; cursor:pointer;
+}
+.log-tab-btn.active { background:var(--md-primary-container); color:var(--md-on-primary-container); }
+.log-list { padding:8px 14px; font-family:'JetBrains Mono',monospace; font-size:11px; max-height:180px; overflow:auto; }
+.log-row {
+  display:grid; grid-template-columns:70px 60px 1fr; gap:10px;
+  padding:3px 0; border-bottom:1px dashed var(--md-outline-variant);
+}
+.log-row .ts { color:var(--md-on-surface-variant); }
+.log-row .lv { font-weight:600; }
+.log-row .lv.INFO { color:var(--md-info); }
+.log-row .lv.WARN { color:var(--md-warning); }
+.log-row .lv.ERROR { color:var(--md-error); }
+.log-row .lv.SSH { color:var(--md-primary); }
+
+/* QUICK CMD TAB */
+.qcmd-layout { display:grid; grid-template-columns:1fr 260px; height:100%; gap:12px; padding:12px; }
+.qcmd-list { display:flex; flex-direction:column; gap:6px; overflow:auto; }
+.qcmd-item {
+  padding:10px 14px; background:var(--md-surface-container); border-radius:12px;
+  display:flex; align-items:center; gap:12px; cursor:pointer;
+  transition:transform .1s,background .15s;
+}
+.qcmd-item:hover { transform:translateX(2px); background:var(--md-surface-container-high); }
+.qcmd-icon { width:32px; height:32px; border-radius:8px; background:var(--md-primary-container); color:var(--md-on-primary-container); display:grid; place-items:center; }
+.qcmd-info { flex:1; min-width:0; }
+.qcmd-name { font-weight:500; font-size:13px; }
+.qcmd-cmd { font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--md-on-surface-variant); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.qcmd-add-btn { border-radius:12px; border:1px dashed var(--md-outline); background:transparent; padding:8px; color:var(--md-on-surface-variant); display:flex; align-items:center; justify-content:center; gap:6px; font-size:12px; font-family:inherit; cursor:pointer; transition:background .15s; }
+.qcmd-add-btn:hover { background:var(--md-surface-container-high); color:var(--md-primary); border-color:var(--md-primary); }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width:8px; height:8px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--md-outline-variant); border-radius:4px; }
+::-webkit-scrollbar-thumb:hover { background:var(--md-outline); }
+
+/* KBD */
+.kbd { display:inline-block; padding:1px 6px; font-size:11px; font-family:'JetBrains Mono',monospace; border-radius:4px; background:var(--md-surface-container-highest); border:1px solid var(--md-outline-variant); }
+
+/* DIALOGS */
+dialog.forge-dialog {
+  border:0; border-radius:28px; padding:0; width:auto; min-width:480px; max-width:680px;
+  background:var(--md-surface); color:var(--md-on-surface);
+  box-shadow:0 10px 40px rgba(0,0,0,.25);
+}
+dialog.forge-dialog::backdrop { background:rgba(0,0,0,.4); backdrop-filter:blur(2px); animation:fadeIn .2s var(--md-easing-standard); }
+dialog.forge-dialog[open] { animation:dlgIn .25s var(--md-easing-emphasized); }
+@keyframes fadeIn { from{opacity:0} to{opacity:1} }
+@keyframes dlgIn { from{opacity:0;transform:scale(.94) translateY(6px)} to{opacity:1;transform:none} }
+.dlg-header { padding:24px 24px 8px; display:flex; align-items:center; gap:14px; }
+.dlg-icon { width:48px; height:48px; border-radius:16px; display:grid; place-items:center; }
+.dlg-icon.terminal { background:var(--md-primary-container); color:var(--md-on-primary-container); }
+.dlg-icon.shield { background:color-mix(in srgb,#10B981 15%,transparent); color:#059669; }
+.dlg-icon.warning { background:color-mix(in srgb,var(--md-warning) 15%,transparent); color:var(--md-warning); }
+.dlg-icon.danger { background:color-mix(in srgb,var(--md-error) 15%,transparent); color:var(--md-error); }
+.dlg-icon.settings { background:color-mix(in srgb,#3B82F6 15%,transparent); color:#2563EB; }
+.dlg-icon.mcp { background:var(--ai-accent-soft); color:var(--ai-accent); }
+.dlg-icon.log { background:color-mix(in srgb,#10B981 15%,transparent); color:#059669; }
+.dlg-title { font-size:22px; font-weight:500; letter-spacing:-.01em; }
+.dlg-subtitle { font-size:13px; color:var(--md-on-surface-variant); margin-top:4px; }
+.dlg-body { padding:8px 24px; display:flex; flex-direction:column; gap:16px; }
+.dlg-footer { padding:16px 24px 24px; display:flex; justify-content:flex-end; gap:8px; }
+.dlg-footer-start { margin-right:auto; }
+
+.md-field { display:flex; flex-direction:column; gap:6px; }
+.md-field label { font-size:12px; font-weight:500; color:var(--md-on-surface-variant); letter-spacing:.02em; }
+.md-field input, .md-field select, .md-field textarea {
+  width:100%; padding:11px 14px; border-radius:12px;
+  border:1px solid var(--md-outline); background:var(--md-surface-container-low);
+  color:var(--md-on-surface); font-family:inherit; font-size:14px; outline:none;
+  transition:border-color .15s,box-shadow .15s,background .15s;
+}
+.md-field input:focus, .md-field select:focus {
+  border-color:var(--md-primary);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--md-primary) 18%,transparent);
+  background:var(--md-surface);
+}
+.md-row { display:grid; gap:12px; }
+.md-row.auth { grid-template-columns:1fr 120px 120px; }
+.md-row.host { grid-template-columns:1fr 110px; }
+.md-row.three { grid-template-columns:1fr 1fr 1fr; }
+
+.md-btn { padding:9px 18px; border-radius:20px; border:0; font-family:inherit; font-weight:500; font-size:14px; cursor:pointer; transition:box-shadow .15s,transform .1s,background .15s; }
+.md-btn-text { background:transparent; color:var(--md-primary); }
+.md-btn-text:hover { background:var(--md-primary-container); }
+.md-btn-filled { background:var(--md-primary); color:var(--md-on-primary); box-shadow:0 1px 2px rgba(0,0,0,.1); }
+.md-btn-filled:hover { box-shadow:0 2px 6px rgba(0,0,0,.15); }
+.md-btn-filled:active { transform:scale(.97); }
+.md-btn-outlined { background:transparent; color:var(--md-primary); border:1px solid var(--md-outline); }
+.md-btn-outlined:hover { background:var(--md-primary-container); border-color:var(--md-primary); }
+.md-btn-danger { background:color-mix(in srgb,var(--md-error) 12%,transparent); color:var(--md-error); }
+.md-btn-danger:hover { background:color-mix(in srgb,var(--md-error) 20%,transparent); }
+
+/* SEGMENTED TOGGLE */
+.seg-toggle { display:flex; border-radius:12px; overflow:hidden; border:1px solid var(--md-outline); background:var(--md-surface-container-low); }
+.seg-toggle button { flex:1; padding:8px 14px; border:0; background:transparent; color:var(--md-on-surface-variant); font-family:inherit; font-size:12px; font-weight:500; cursor:pointer; transition:background .15s,color .15s; }
+.seg-toggle button.active { background:var(--md-primary-container); color:var(--md-on-primary-container); }
+
+/* DIALOG TABS */
+.dlg-tabs { display:flex; gap:4px; border-bottom:1px solid var(--md-outline-variant); padding-bottom:2px; }
+.dlg-tab {
+  padding:8px 16px; border-radius:12px 12px 0 0; border:0; background:transparent;
+  color:var(--md-on-surface-variant); font-family:inherit; font-size:13px; font-weight:500; cursor:pointer;
+}
+.dlg-tab:hover { color:var(--md-on-surface); background:var(--md-surface-container-high); }
+.dlg-tab.active { color:var(--md-primary); background:var(--md-surface-container); }
+.dlg-tab-panel { display:none; }
+.dlg-tab-panel.active { display:flex; flex-direction:column; gap:14px; }
+
+/* SETTINGS SWITCH */
+.setting-row { display:flex; align-items:center; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--md-outline-variant); }
+.setting-row:last-child { border-bottom:0; }
+.setting-label { display:flex; flex-direction:column; gap:2px; }
+.setting-label .title { font-weight:500; font-size:13px; }
+.setting-label .desc { font-size:11px; color:var(--md-on-surface-variant); }
+.switch { width:44px; height:24px; border-radius:12px; border:0; background:var(--md-outline); position:relative; cursor:pointer; transition:background .2s; }
+.switch::after { content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#FFF; transition:left .2s; box-shadow:0 1px 3px rgba(0,0,0,.2); }
+.switch.on { background:var(--md-primary); }
+.switch.on::after { left:23px; }
+
+/* LIST MANAGER (blocklist) */
+.list-manager { background:var(--md-surface-container-low); border-radius:12px; border:1px solid var(--md-outline-variant); max-height:180px; overflow:auto; }
+.list-mgr-item { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--md-outline-variant); font-family:'JetBrains Mono',monospace; font-size:12px; }
+.list-mgr-item:last-child { border-bottom:0; }
+.list-mgr-item .pat { flex:1; }
+.list-mgr-item button { width:24px; height:24px; border-radius:6px; border:0; background:transparent; color:var(--md-error); display:grid; place-items:center; cursor:pointer; }
+.list-mgr-item button:hover { background:color-mix(in srgb,var(--md-error) 12%,transparent); }
+.list-mgr-add { display:flex; gap:8px; padding:8px 12px; }
+.list-mgr-add input { flex:1; padding:6px 10px; border-radius:8px; border:1px solid var(--md-outline); background:var(--md-surface); }
+
+/* ATTACH CARD IN CONFIRM DIALOG */
+.confirm-card { background:var(--ai-accent-soft); border-radius:16px; padding:16px; display:flex; gap:14px; align-items:flex-start; }
+.confirm-icon { width:44px; height:44px; border-radius:12px; background:var(--ai-accent); color:#FFF; display:grid; place-items:center; flex-shrink:0; }
+.confirm-content { flex:1; }
+.confirm-title { font-weight:600; font-size:14px; color:var(--ai-accent); }
+.confirm-body { font-size:13px; color:var(--md-on-surface); margin-top:4px; }
+.confirm-args {
+  margin-top:10px; background:var(--terminal-bg); color:var(--terminal-fg);
+  padding:10px 12px; border-radius:8px; font-family:'JetBrains Mono',monospace; font-size:12px;
+  white-space:pre-wrap; word-break:break-all;
+}
+
+/* TOAST */
+.toast-container { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:8px; z-index:9999; pointer-events:none; }
+.toast {
+  pointer-events:auto; padding:10px 18px; border-radius:10px;
+  background:var(--md-surface-container-highest); color:var(--md-on-surface);
+  box-shadow:0 4px 12px rgba(0,0,0,.15); font-size:13px;
+  display:flex; align-items:center; gap:8px; animation:toastIn .3s var(--md-easing-emphasized);
+}
+@keyframes toastIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+</style>
+</head>
+<body>
+
+<!-- ============ APP BAR ============ -->
+<header class="appbar">
+  <div class="appbar-logo">
+    <div class="appbar-logo-icon"><span class="material-icons-round" style="font-size:20px">terminal</span></div>
+    <span>Chena-Shell</span>
+  </div>
+  <div class="appbar-search">
+    <span class="material-icons-round" style="font-size:18px">search</span>
+    <input placeholder="搜索会话、命令、设置…">
+    <span class="kbd" style="font-size:10px">Ctrl K</span>
+  </div>
+  <div class="appbar-actions">
+    <button class="appbar-icon-btn" title="日志" onclick="document.getElementById('logDialog').showModal()"><span class="material-icons-round">history</span></button>
+    <button class="appbar-icon-btn" title="命令历史" onclick="document.getElementById('cmdDialog').showModal()"><span class="material-icons-round">terminal</span></button>
+    <button class="appbar-icon-btn" title="设置" onclick="document.getElementById('settingsDialog').showModal()"><span class="material-icons-round">settings</span></button>
+    <div class="mcp-chip" style="margin:0 8px;cursor:pointer" onclick="document.getElementById('mcpDialog').showModal()" title="MCP 设置">
+      <span class="mcp-dot"></span>
+      MCP Server
+    </div>
+    <button class="appbar-icon-btn" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'" title="切换主题">
+      <span class="material-icons-round">dark_mode</span>
+    </button>
+  </div>
+</header>
+
+<!-- ============ MAIN ============ -->
+<div class="main">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <button class="sidebar-btn-new" onclick="openNewSession()">
+      <span class="material-icons-round" style="font-size:18px;color:var(--md-primary)">add</span> 新建会话
+    </button>
+
+    <div class="sidebar-content">
+      <div class="sidebar-section-title">快速连接</div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="material-icons-round">expand_more</span>  Linux Production
+        </div>
+        <div class="sidebar-group-items">
+          <div class="session-item active">
+            <div class="session-item-icon"><span class="material-icons-round" style="font-size:16px">dns</span></div>
+            <div class="session-item-info"><div class="session-item-name">prod-web-02</div><div class="session-item-host">10.0.1.22:22 · root</div></div>
+            <span class="session-badge-ai" style="margin-right:4px">AI</span>
+            <div class="session-item-status online"></div>
+          </div>
+          <div class="session-item">
+            <div class="session-item-icon"><span class="material-icons-round" style="font-size:16px">dns</span></div>
+            <div class="session-item-info"><div class="session-item-name">prod-db-01</div><div class="session-item-host">10.0.1.30:22 · admin</div></div>
+            <div class="session-item-status online"></div>
+          </div>
+          <div class="session-item">
+            <div class="session-item-icon"><span class="material-icons-round" style="font-size:16px">dns</span></div>
+            <div class="session-item-info"><div class="session-item-name">prod-redis-02</div><div class="session-item-host">10.0.1.40:22 · root</div></div>
+            <div class="session-item-status online"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="material-icons-round">expand_more</span>  Staging
+        </div>
+        <div class="sidebar-group-items">
+          <div class="session-item">
+            <div class="session-item-icon"><span class="material-icons-round" style="font-size:16px">dns</span></div>
+            <div class="session-item-info"><div class="session-item-name">devbox-01</div><div class="session-item-host">192.168.1.100:22 · dev</div></div>
+            <div class="session-item-status online"></div>
+          </div>
+          <div class="session-item">
+            <div class="session-item-icon"><span class="material-icons-round" style="font-size:16px">dns</span></div>
+            <div class="session-item-info"><div class="session-item-name">staging-k8s</div><div class="session-item-host">10.10.2.5:22 · kube</div></div>
+            <div class="session-item-status reconnecting"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-group">
+        <div class="sidebar-group-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          <span class="material-icons-round">expand_more</span>  AWS
+        </div>
+        <div class="sidebar-group-items">
+          <div class="session-item">
+            <div class="session-item-icon"><span class="material-icons-round" style="font-size:16px">cloud</span></div>
+            <div class="session-item-info"><div class="session-item-name">ec2-us-east-1</div><div class="session-item-host">52.10.20.30:22 · ubuntu</div></div>
+            <div class="session-item-status offline"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-bottom">
+      <button class="sidebar-footer-btn" onclick="document.getElementById('qcmdDialog').showModal()"><span class="material-icons-round">bolt</span>快速命令</button>
+      <button class="sidebar-footer-btn" onclick="document.getElementById('logDialog').showModal()"><span class="material-icons-round">history</span>日志</button>
+      <button class="sidebar-footer-btn" onclick="document.getElementById('settingsDialog').showModal()"><span class="material-icons-round">settings</span>设置</button>
+    </div>
+  </aside>
+
+  <!-- WORKSPACE -->
+  <div class="workspace">
+
+    <!-- TAB BAR -->
+    <div class="tabbar">
+      <div class="tab-item active" onclick="document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));this.classList.add('active')">
+        <span>📄</span>
+        <span class="tab-item-name">prod-web-02</span>
+        <span class="session-badge-ai">AI</span>
+        <button class="tab-item-close" onclick="this.parentElement.remove()">✕</button>
+      </div>
+      <div class="tab-item" onclick="document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));this.classList.add('active')">
+        <span>📄</span>
+        <span class="tab-item-name">prod-db-01</span>
+        <button class="tab-item-close" onclick="this.parentElement.remove()">✕</button>
+      </div>
+      <div class="tab-item" onclick="document.querySelectorAll('.tab-item').forEach(t=>t.classList.remove('active'));this.classList.add('active')">
+        <span>📄</span>
+        <span class="tab-item-name">devbox-01</span>
+        <button class="tab-item-close" onclick="this.parentElement.remove()">✕</button>
+      </div>
+      <button class="tab-add" onclick="openNewSession()"><span class="material-icons-round" style="font-size:20px">add</span></button>
+    </div>
+
+    <!-- TERMINAL TOOLBAR -->
+    <div class="terminal-toolbar">
+      <div class="term-path">
+        <span class="material-icons-round" style="font-size:14px;color:var(--md-primary)">dns</span>
+        <span>prod-web-02 · root@10.0.1.22</span>
+        <span class="sep">·</span>
+        <span style="color:var(--md-primary)">/var/log/nginx</span>
+      </div>
+      <span class="term-chip ai" id="aiChip" style="margin-left:8px">
+        🤖 Trae attach 中 · nginx 502 排查
+        <button class="term-chip-close" onclick="this.parentElement.remove();showToast('已踢出 AI，会话控制权交还人类')">✕</button>
+      </span>
+      <span class="term-spacer"></span>
+      <button class="term-btn" title="复制"><span class="material-icons-round">content_copy</span>复制</button>
+      <button class="term-btn" title="粘贴"><span class="material-icons-round">content_paste</span>粘贴</button>
+      <button class="term-btn" title="清屏"><span class="material-icons-round">delete_sweep</span>清屏</button>
+      <button class="term-btn" title="查找"><span class="material-icons-round">search</span>查找</button>
+      <span class="term-status-pill" title="连接状态"><span style="width:6px;height:6px;border-radius:50%;background:var(--md-success)"></span>已连接 · 延迟 12ms</span>
+    </div>
+
+    <!-- TERMINAL -->
+    <div class="terminal" id="terminal">
+      <div class="term-section-sep ai-start">━━━ 🤖 Trae attach · 原因: nginx 502 排查 ━━━</div>
+
+      <div class="term-line"><span class="term-prompt">root@prod-web-02:<span class="thl-path">/var/log/nginx</span>#</span><span class="term-cmd ai-cmd"><span class="shell"><span class="sh-bin">systemctl</span> <span class="sh-flag">status</span> <span class="sh-arg">nginx</span> <span class="sh-flag">--no-pager</span></span></span></div>
+      <div class="term-output">
+<span class="thl-dot-failed">●</span> <span class="thl-bold">nginx.service</span> — A high performance web server
+   <span class="thl-gray">Loaded:</span> <span class="thl-green">loaded</span> (<span class="thl-path">/lib/systemd/system/nginx.service</span>; enabled; vendor preset: enabled)
+   <span class="thl-gray">Active:</span> <span class="thl-lvl-err">failed (Result: exit-code)</span> since Tue 2026-11-18 <span class="thl-num">10:32:11</span> CST; <span class="thl-num">2h 14min</span> ago
+   <span class="thl-gray">Process:</span> <span class="thl-pid">12345</span> ExecStart=/usr/sbin/nginx -g daemon on; master_process on; <span class="thl-gray">code=</span><span class="thl-red">exited</span> <span class="thl-gray">status=</span><span class="thl-red">203/EXEC</span>
+      </div>
+
+      <div class="term-line"><span class="term-prompt">root@prod-web-02:<span class="thl-path">/var/log/nginx</span>#</span><span class="term-cmd ai-cmd"><span class="shell"><span class="sh-bin">journalctl</span> <span class="sh-flag">-u</span> <span class="sh-arg">nginx</span> <span class="sh-flag">-n</span> <span class="sh-num">30</span> <span class="sh-flag">--no-pager</span></span></span></div>
+      <div class="term-output">
+<span class="thl-gray">Nov 18 10:32:10</span> <span class="thl-blue">prod-web-02</span> <span class="thl-cyan">nginx[12345]</span>: <span class="thl-lvl-err">[emerg]</span> bind() to <span class="thl-ip">0.0.0.0</span>:<span class="thl-port">80</span> failed (<span class="thl-num">98</span>: Address already in use)
+<span class="thl-gray">Nov 18 10:32:10</span> <span class="thl-blue">prod-web-02</span> <span class="thl-cyan">nginx[12345]</span>: <span class="thl-lvl-err">[emerg]</span> nginx: configuration file <span class="thl-path">/etc/nginx/nginx.conf</span> test failed
+<span class="thl-gray">Nov 18 10:30:01</span> <span class="thl-blue">prod-web-02</span> <span class="thl-cyan">nginx[12200]</span>: <span class="thl-lvl-info">[notice]</span> signal process started
+<span class="thl-gray">Nov 18 10:30:01</span> <span class="thl-blue">prod-web-02</span> <span class="thl-cyan">nginx[12200]</span>: <span class="thl-lvl-warn">[warn]</span> conflicting server name <span class="thl-str">"_"</span> on <span class="thl-ip">0.0.0.0</span>:<span class="thl-port">8080</span>, ignored
+      </div>
+
+      <div class="term-line"><span class="term-prompt">root@prod-web-02:<span class="thl-path">/var/log/nginx</span>#</span><span class="term-cmd ai-cmd"><span class="shell"><span class="sh-bin">ss</span> <span class="sh-flag">-tlnp</span> <span class="sh-pipe">|</span> <span class="sh-bin">grep</span> <span class="sh-str">:80</span></span></span></div>
+      <div class="term-output">
+<span class="thl-sock-listen">LISTEN</span> <span class="thl-gray">0</span> <span class="thl-gray">511</span> <span class="thl-ip">0.0.0.0</span>:<span class="thl-port">80</span> <span class="thl-gray">0.0.0.0</span>:* <span class="thl-gray">users:(("</span><span class="thl-red">other-proc</span><span class="thl-gray">",pid=</span><span class="thl-pid">9876</span><span class="thl-gray">,fd=6))</span>
+<span class="thl-sock-listen">LISTEN</span> <span class="thl-gray">0</span> <span class="thl-gray">511</span> <span class="thl-ip">0.0.0.0</span>:<span class="thl-port">8080</span> <span class="thl-gray">0.0.0.0</span>:* <span class="thl-gray">users:(("</span><span class="thl-blue">nginx</span><span class="thl-gray">",pid=</span><span class="thl-pid">12000</span><span class="thl-gray">,fd=6))</span>
+      </div>
+
+      <div class="term-line"><span class="term-prompt">root@prod-web-02:<span class="thl-path">/var/log/nginx</span>#</span><span class="term-cmd ai-cmd"><span class="shell"><span class="sh-bin">cat</span> <span class="sh-path">/etc/nginx/sites-enabled/default</span> <span class="sh-pipe">|</span> <span class="sh-bin">head</span> <span class="sh-flag">-20</span></span></span></div>
+      <div class="term-output">
+<span class="thl-kw">server</span> <span class="thl-bracket">{</span>
+    <span class="thl-cmd">listen</span> <span class="thl-port">8080</span> <span class="thl-kw">default_server</span>;
+    <span class="thl-cmd">listen</span> <span class="thl-port">[::]</span>:<span class="thl-num">8080</span> <span class="thl-kw">default_server</span>;
+    <span class="thl-cmd">server_name</span> <span class="thl-str">_</span>;
+    <span class="thl-cmd">root</span> <span class="thl-path">/var/www/html</span>;
+<span class="thl-bracket">}</span>
+      </div>
+
+      <div class="term-section-sep ai-end">━━━ 🤖 Trae detach · 原因: 搞定了 ━━━</div>
+
+      <div class="term-line"><span class="term-prompt">root@prod-web-02:<span class="thl-path">/var/log/nginx</span>#</span><span class="term-cmd"><span class="shell"><span class="sh-bin">ps</span> <span class="sh-flag">aux</span> <span class="sh-pipe">|</span> <span class="sh-bin">grep</span> <span class="sh-flag">nginx</span></span></span></div>
+      <div class="term-output">
+<span class="thl-blue">www-data</span>  <span class="thl-pid">2345</span>  <span class="thl-num">0.1</span>  <span class="thl-num">1.2</span> <span class="thl-cyan">nginx: worker process</span>
+<span class="thl-blue">www-data</span>  <span class="thl-pid">2346</span>  <span class="thl-num">0.0</span>  <span class="thl-num">0.8</span> <span class="thl-cyan">nginx: worker process</span>
+<span class="thl-blue">root</span>       <span class="thl-pid">2340</span>  <span class="thl-num">0.0</span>  <span class="thl-num">0.4</span> <span class="thl-cyan">nginx: master process /usr/sbin/nginx</span>
+      </div>
+
+      <div class="term-line"><span class="term-prompt">root@prod-web-02:<span class="thl-path">/var/log/nginx</span>#</span><span class="term-cursor">▌</span></div>
+    </div>
+
+    <!-- BOTTOM PANEL -->
+    <div class="bottom-panel">
+      <div class="panel-tabs">
+        <button class="panel-tab active" onclick="switchPanel(this,'monitor')"><span class="material-icons-round" style="font-size:16px">monitoring</span>资源监控</button>
+        <button class="panel-tab" onclick="switchPanel(this,'sftp')"><span class="material-icons-round" style="font-size:16px">folder_open</span>SFTP</button>
+        <button class="panel-tab" onclick="switchPanel(this,'ai-activity')"><span class="material-icons-round" style="font-size:16px">smart_toy</span>AI 活动<span class="panel-tab-badge">3</span></button>
+        <button class="panel-tab" onclick="switchPanel(this,'port-forward')"><span class="material-icons-round" style="font-size:16px">alt_route</span>端口转发</button>
+        <button class="panel-tab" onclick="switchPanel(this,'log')"><span class="material-icons-round" style="font-size:16px">terminal</span>会话日志</button>
+        <button class="panel-tab" onclick="switchPanel(this,'qcmd')"><span class="material-icons-round" style="font-size:16px">bolt</span>快速命令</button>
+      </div>
+      <div class="panel-body" id="panel-body">
+
+        <!-- MONITOR -->
+        <div id="panel-monitor" class="monitor-grid">
+          <div class="mon-card">
+            <div class="mon-header"><div class="mon-icon cpu"><span class="material-icons-round" style="font-size:14px">memory</span></div><span class="mon-name">CPU</span></div>
+            <div class="mon-value"><span id="cpuVal">34</span>%</div>
+            <div class="mon-bar"><div class="mon-bar-fill green" id="cpuBar" style="width:34%"></div></div>
+            <svg class="mon-spark" viewBox="0 0 100 32" preserveAspectRatio="none"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="0,22 10,18 20,20 30,15 40,24 50,12 60,16 70,22 80,14 90,18 100,20" style="color:#3B82F6"></svg>
+            <div class="mon-sub"><span>4 核</span><span>采样 2s</span></div>
+          </div>
+          <div class="mon-card">
+            <div class="mon-header"><div class="mon-icon mem"><span class="material-icons-round" style="font-size:14px">memory</span></div><span class="mon-name">内存</span></div>
+            <div class="mon-value"><span id="memVal">48</span>%</div>
+            <div class="mon-bar"><div class="mon-bar-fill green" id="memBar" style="width:48%"></div></div>
+            <svg class="mon-spark" viewBox="0 0 100 32" preserveAspectRatio="none"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="0,18 10,16 20,20 30,14 40,12 50,18 60,10 70,14 80,16 90,12 100,14" style="color:#10B981"></svg>
+            <div class="mon-sub"><span>3.8 / 8.0 GB</span><span>Swap 0%</span></div>
+          </div>
+          <div class="mon-card">
+            <div class="mon-header"><div class="mon-icon disk"><span class="material-icons-round" style="font-size:14px">storage</span></div><span class="mon-name">磁盘</span></div>
+            <div class="mon-value">45%</div>
+            <div class="mon-bar"><div class="mon-bar-fill green" style="width:45%"></div></div>
+            <svg class="mon-spark" viewBox="0 0 100 32" preserveAspectRatio="none"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="0,20 10,20 20,18 30,20 40,16 50,20 60,18 70,20 80,14 90,20 100,18" style="color:#F59E0B"></svg>
+            <div class="mon-sub"><span>/dev/sda1 91G</span><span>/var 62%</span></div>
+          </div>
+          <div class="mon-card">
+            <div class="mon-header"><div class="mon-icon net"><span class="material-icons-round" style="font-size:14px">lan</span></div><span class="mon-name">网络</span></div>
+            <div class="mon-value">↓12 KB/s</div>
+            <div class="mon-bar" style="background:transparent"></div>
+            <svg class="mon-spark" viewBox="0 0 100 32" preserveAspectRatio="none" style="color:#8B5CF6">
+              <polyline fill="none" stroke="#8B5CF6" stroke-width="1.5" points="0,20 10,16 20,22 30,14 40,18 50,10 60,16 70,12 80,18 90,14 100,8"/>
+              <polyline fill="none" stroke="#EC4899" stroke-width="1" stroke-dasharray="2,2" opacity=".7" points="0,22 10,20 20,24 30,18 40,22 50,16 60,20 70,18 80,22 90,20 100,14"/>
+            </svg>
+            <div class="mon-sub"><span>↓ 入站</span><span>↑ 4 KB/s</span></div>
+          </div>
+          <div class="mon-card">
+            <div class="mon-header"><div class="mon-icon load"><span class="material-icons-round" style="font-size:14px">speed</span></div><span class="mon-name">Load</span></div>
+            <div class="mon-value">0.42</div>
+            <div class="mon-bar" style="background:transparent"></div>
+            <svg class="mon-spark" viewBox="0 0 100 32" preserveAspectRatio="none"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="0,18 10,20 20,14 30,22 40,12 50,20 60,14 70,18 80,10 90,16 100,12" style="color:#EF4444"></svg>
+            <div class="mon-sub"><span>1m</span><span>5m 0.38</span><span>15m 0.35</span></div>
+          </div>
+        </div>
+
+        <!-- SFTP -->
+        <div id="panel-sftp" style="display:none" class="sftp-layout">
+          <div class="sftp-pane">
+            <div class="sftp-header">
+              <span class="material-icons-round">desktop_windows</span>
+              <div class="sftp-path">C:\Users\demo\Downloads</div>
+              <div class="sftp-toolbar">
+                <button title="上一级"><span class="material-icons-round">arrow_upward</span></button>
+                <button title="刷新"><span class="material-icons-round">refresh</span></button>
+                <button title="新建文件夹"><span class="material-icons-round">create_new_folder</span></button>
+              </div>
+            </div>
+            <div class="sftp-list">
+              <div class="sftp-row selected"><span class="row-icon folder"><span class="material-icons-round">folder</span></span><span class="row-name">..</span><span class="row-size">—</span><span class="row-date">—</span></div>
+              <div class="sftp-row"><span class="row-icon folder"><span class="material-icons-round">folder</span></span><span class="row-name">项目</span><span class="row-size">—</span><span class="row-date">2026-11-10</span></div>
+              <div class="sftp-row"><span class="row-icon folder"><span class="material-icons-round">folder</span></span><span class="row-name">chena-shell</span><span class="row-size">—</span><span class="row-date">今天</span></div>
+              <div class="sftp-row"><span class="row-icon file"><span class="material-icons-round">description</span></span><span class="row-name">nginx.conf.bak</span><span class="row-size">2.4 KB</span><span class="row-date">10:28</span></div>
+              <div class="sftp-row"><span class="row-icon file"><span class="material-icons-round">archive</span></span><span class="row-name">backup.tar.gz</span><span class="row-size">128 MB</span><span class="row-date">昨天</span></div>
+            </div>
+          </div>
+          <div class="sftp-pane">
+            <div class="sftp-header">
+              <span class="material-icons-round" style="color:var(--ai-accent)">dns</span>
+              <div class="sftp-path">prod-web-02 · /etc/nginx/sites-enabled</div>
+              <div class="sftp-toolbar">
+                <button title="上一级"><span class="material-icons-round">arrow_upward</span></button>
+                <button title="刷新"><span class="material-icons-round">refresh</span></button>
+                <button title="上传"><span class="material-icons-round">upload</span></button>
+              </div>
+            </div>
+            <div class="sftp-list">
+              <div class="sftp-row"><span class="row-icon folder"><span class="material-icons-round">folder</span></span><span class="row-name">..</span><span class="row-size">—</span><span class="row-date">—</span></div>
+              <div class="sftp-row"><span class="row-icon file"><span class="material-icons-round">description</span></span><span class="row-name">default</span><span class="row-size">1.8 KB</span><span class="row-date">10:32</span></div>
+              <div class="sftp-row"><span class="row-icon file"><span class="material-icons-round">description</span></span><span class="row-name">api.conf</span><span class="row-size">3.2 KB</span><span class="row-date">11-15</span></div>
+            </div>
+          </div>
+          <div class="sftp-pane">
+            <div class="sftp-header" style="justify-content:space-between">
+              <span class="material-icons-round">swap_horiz</span>
+              <span style="font-size:12px;font-weight:500">传输队列 (3)</span>
+            </div>
+            <div class="transfer-queue">
+              <div class="tq-title">进行中</div>
+              <div class="tq-item">
+                <div class="tq-top"><span class="tq-name">nginx.conf.bak → /etc/nginx/sites-enabled/</span><span class="tq-status active">上传中</span></div>
+                <div class="tq-bar"><div class="tq-bar-fill" style="width:72%"></div></div>
+                <div class="tq-info"><span>1.7 KB / 2.4 KB · 拖拽上传</span><span>12 KB/s</span></div>
+              </div>
+              <div class="tq-title" style="margin-top:8px">AI 自动</div>
+              <div class="tq-item">
+                <div class="tq-top"><span class="tq-name">backup.tar.gz ← /home/admin/</span><span class="tq-status paused">暂停</span></div>
+                <div class="tq-bar"><div class="tq-bar-fill" style="width:34%;background:var(--md-outline)"></div></div>
+                <div class="tq-info"><span>AI attach 期间 · 已暂停传输</span><span>断点续传已就绪</span></div>
+              </div>
+              <div class="tq-title" style="margin-top:8px">已完成</div>
+              <div class="tq-item">
+                <div class="tq-top"><span class="tq-name">install.sh → /tmp/</span><span class="tq-status done">完成</span></div>
+                <div class="tq-bar"><div class="tq-bar-fill" style="width:100%"></div></div>
+                <div class="tq-info"><span>AI 上传 · 冲突选覆盖</span><span>14:22:05</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI ACTIVITY -->
+        <div id="panel-ai-activity" style="display:none" class="ai-activity-layout">
+          <div class="ai-activity-events">
+            <div class="ai-timeline">
+              <div class="ai-event" onclick="toggleEvent(this)">
+                <div class="ai-event-icon start"><span class="material-icons-round" style="font-size:18px">smart_toy</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">Trae attach 到 prod-web-02 <span class="ai-tag ok">开始</span></div>
+                  <div style="font-size:11px;color:var(--md-on-surface-variant);margin-top:2px">来自 Trae CLI · 原因: 排查 nginx 502</div>
+                  <div class="ai-event-meta"><span>14:22:00</span><span>attach_token: tk_a7f93…</span></div>
+                </div>
+              </div>
+              <div class="ai-event" onclick="toggleEvent(this)">
+                <div class="ai-event-icon exec"><span class="material-icons-round" style="font-size:18px">play_arrow</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">systemctl status nginx --no-pager <span class="ai-tag ok">✓ 1.2s</span></div>
+                  <div class="ai-event-args">● nginx.service - A high performance web server
+   Loaded: loaded (/lib/systemd/system/nginx.service; enabled)
+   Active: failed (Result: exit-code) since Tue 2026-11-18 10:32:11 CST</div>
+                  <div class="ai-event-meta"><span>14:22:01</span><span>stdout 6 lines</span><span>status 3</span></div>
+                </div>
+              </div>
+              <div class="ai-event" onclick="toggleEvent(this)">
+                <div class="ai-event-icon exec"><span class="material-icons-round" style="font-size:18px">play_arrow</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">journalctl -u nginx -n 30 --no-pager <span class="ai-tag ok">✓ 0.8s</span></div>
+                  <div class="ai-event-meta"><span>14:22:02</span><span>stdout 12 lines</span></div>
+                </div>
+              </div>
+              <div class="ai-event" onclick="document.getElementById('safetyDialog').showModal()">
+                <div class="ai-event-icon blocked"><span class="material-icons-round" style="font-size:18px">shield</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">rm -rf /var/log/nginx/old · 被阻断 <span class="ai-tag blocked">BLOCKED</span></div>
+                  <div style="font-size:11px;color:var(--md-on-surface-variant);margin-top:2px">命中全局黑名单: rm -rf / — 已拦截。点击查看规则</div>
+                  <div class="ai-event-meta"><span>14:22:03</span></div>
+                </div>
+              </div>
+              <div class="ai-event" onclick="toggleEvent(this)">
+                <div class="ai-event-icon exec"><span class="material-icons-round" style="font-size:18px">play_arrow</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">cat /etc/nginx/sites-enabled/default | head -20 <span class="ai-tag ok">✓ 0.3s</span></div>
+                  <div class="ai-event-meta"><span>14:22:03</span></div>
+                </div>
+              </div>
+              <div class="ai-event" onclick="toggleEvent(this)">
+                <div class="ai-event-icon exec"><span class="material-icons-round" style="font-size:18px">play_arrow</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">nginx -t && systemctl restart nginx <span class="ai-tag waiting">等待确认</span></div>
+                  <div style="font-size:11px;color:var(--md-on-surface-variant);margin-top:2px">命中会话级"推荐模式需确认清单" · 等待人类同意（30s 超时）</div>
+                  <div class="ai-event-meta"><span>14:22:04</span><span>14:22:34 超时</span></div>
+                </div>
+              </div>
+              <div class="ai-event" onclick="toggleEvent(this)">
+                <div class="ai-event-icon end"><span class="material-icons-round" style="font-size:18px">check_circle</span></div>
+                <div class="ai-event-content">
+                  <div class="ai-event-title">Trae detach <span class="ai-tag ok">完成</span></div>
+                  <div style="font-size:11px;color:var(--md-on-surface-variant);margin-top:2px">排查耗时 3m 42s · 控制权交还人类</div>
+                  <div class="ai-event-meta"><span>14:25:42</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- PORT FORWARD -->
+        <div id="panel-port-forward" style="display:none">
+          <div class="pf-header">
+            <div class="pf-title">端口转发规则</div>
+            <button class="md-btn md-btn-outlined" onclick="document.getElementById('pfDialog').showModal()">
+              <span class="material-icons-round" style="font-size:16px;vertical-align:-3px;margin-right:4px">add</span> 添加规则
+            </button>
+          </div>
+          <div class="pf-list">
+            <div class="pf-item">
+              <span class="pf-dot"></span>
+              <div class="pf-info"><div class="pf-name">本地 Web 调试</div><div class="pf-detail">localhost:8080 → remote:80 · Local 转发</div></div>
+              <span class="kbd" style="font-size:10px">L</span>
+              <button class="pf-switch" onclick="this.classList.toggle('off')"></button>
+            </div>
+            <div class="pf-item">
+              <span class="pf-dot" style="background:var(--md-outline)"></span>
+              <div class="pf-info"><div class="pf-name">数据库直连</div><div class="pf-detail">localhost:5432 → remote:5432 · Local 转发</div></div>
+              <span class="kbd" style="font-size:10px">L</span>
+              <button class="pf-switch off" onclick="this.classList.toggle('off')"></button>
+            </div>
+            <div class="pf-item">
+              <span class="pf-dot"></span>
+              <div class="pf-info"><div class="pf-name">远程管理面板</div><div class="pf-detail">remote:9090 → localhost:9090 · Remote 转发</div></div>
+              <span class="kbd" style="font-size:10px">R</span>
+              <button class="pf-switch" onclick="this.classList.toggle('off')"></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- LOG -->
+        <div id="panel-log" style="display:none">
+          <div class="log-tabs">
+            <button class="log-tab-btn active" onclick="switchLogTab(this,'term')">终端输出</button>
+            <button class="log-tab-btn" onclick="switchLogTab(this,'ai')">AI 活动</button>
+            <button class="log-tab-btn" onclick="switchLogTab(this,'conn')">连接事件</button>
+            <div style="flex:1"></div>
+            <button class="md-btn md-btn-text" style="padding:4px 12px;font-size:12px" onclick="showToast('日志已导出到 Downloads/prod-web-02-2026-11-18.log')">导出日志</button>
+          </div>
+          <div id="log-term" class="log-list">
+            <div class="log-row"><span class="ts">14:20:15</span><span class="lv SSH">SSH</span><span>Connected to prod-web-02 (10.0.1.22:22) using publickey</span></div>
+            <div class="log-row"><span class="ts">14:20:16</span><span class="lv INFO">INFO</span><span>Session started · term=xterm-256color · cols=120 rows=40</span></div>
+            <div class="log-row"><span class="ts">14:22:00</span><span class="lv INFO">INFO</span><span>🤖 AI attach · source=Trae CLI · token=tk_a7f93</span></div>
+            <div class="log-row"><span class="ts">14:22:03</span><span class="lv ERROR">ERROR</span><span>🤖 AI exec BLOCKED · pattern="rm -rf /var/log/nginx/old" · rule=global_blacklist</span></div>
+            <div class="log-row"><span class="ts">14:22:04</span><span class="lv WARN">WARN</span><span>🤖 AI exec WAITING_CONFIRM · cmd="nginx -t && systemctl restart nginx"</span></div>
+            <div class="log-row"><span class="ts">14:25:42</span><span class="lv INFO">INFO</span><span>🤖 AI detach · duration=3m42s · reason=搞定了</span></div>
+            <div class="log-row"><span class="ts">14:26:01</span><span class="lv INFO">INFO</span><span>人类输入缓冲 42/512B 回放完成</span></div>
+          </div>
+          <div id="log-ai" class="log-list" style="display:none">
+            <div class="log-row"><span class="ts">14:22:00</span><span class="lv INFO">INFO</span><span>[ATTACH] Trae CLI → prod-web-02</span></div>
+            <div class="log-row"><span class="ts">14:22:01</span><span class="lv INFO">INFO</span><span>[EXEC] systemctl status nginx --no-pager → exit 0 · 1.2s</span></div>
+            <div class="log-row"><span class="ts">14:22:02</span><span class="lv INFO">INFO</span><span>[EXEC] journalctl -u nginx -n 30 --no-pager → exit 0 · 0.8s</span></div>
+            <div class="log-row"><span class="ts">14:22:03</span><span class="lv ERROR">ERROR</span><span>[BLOCKED] rm -rf /var/log/nginx/old · rule=global_blacklist</span></div>
+            <div class="log-row"><span class="ts">14:22:04</span><span class="lv WARN">WARN</span><span>[WAIT_CONFIRM] nginx -t && systemctl restart nginx</span></div>
+            <div class="log-row"><span class="ts">14:25:42</span><span class="lv INFO">INFO</span><span>[DETACH] duration=3m42s</span></div>
+          </div>
+          <div id="log-conn" class="log-list" style="display:none">
+            <div class="log-row"><span class="ts">14:20:10</span><span class="lv SSH">SSH</span><span>Session prod-web-02 connecting…</span></div>
+            <div class="log-row"><span class="ts">14:20:15</span><span class="lv SSH">SSH</span><span>Authenticated (publickey). Connected.</span></div>
+            <div class="log-row"><span class="ts">14:10:33</span><span class="lv WARN">WARN</span><span>Connection lost. Retrying (2/5)…</span></div>
+            <div class="log-row"><span class="ts">14:10:45</span><span class="lv SSH">SSH</span><span>Reconnected after 12s.</span></div>
+          </div>
+        </div>
+
+        <!-- QUICK CMD -->
+        <div id="panel-qcmd" style="display:none" class="qcmd-layout">
+          <div class="qcmd-list">
+            <div class="qcmd-item" onclick="document.getElementById('cmdDialog').showModal();showToast('命令已执行到 prod-web-02')">
+              <div class="qcmd-icon"><span class="material-icons-round" style="font-size:18px">analytics</span></div>
+              <div class="qcmd-info"><div class="qcmd-name">系统负载快照</div><div class="qcmd-cmd">uptime && free -h && df -h /</div></div>
+              <span class="material-icons-round" style="color:var(--md-on-surface-variant);font-size:18px">chevron_right</span>
+            </div>
+            <div class="qcmd-item">
+              <div class="qcmd-icon"><span class="material-icons-round" style="font-size:18px">dns</span></div>
+              <div class="qcmd-info"><div class="qcmd-name">监听端口一览</div><div class="qcmd-cmd">ss -tlnp 2>/dev/null || netstat -tlnp</div></div>
+              <span class="material-icons-round" style="color:var(--md-on-surface-variant);font-size:18px">chevron_right</span>
+            </div>
+            <div class="qcmd-item">
+              <div class="qcmd-icon"><span class="material-icons-round" style="font-size:18px">description</span></div>
+              <div class="qcmd-info"><div class="qcmd-name">Top CPU 进程</div><div class="qcmd-cmd">ps aux --sort=-%cpu | head -11</div></div>
+              <span class="material-icons-round" style="color:var(--md-on-surface-variant);font-size:18px">chevron_right</span>
+            </div>
+            <div class="qcmd-item">
+              <div class="qcmd-icon"><span class="material-icons-round" style="font-size:18px">terminal</span></div>
+              <div class="qcmd-info"><div class="qcmd-name">清理日志盘</div><div class="qcmd-cmd">journalctl --vacuum-size=200M</div></div>
+              <span class="material-icons-round" style="color:var(--md-on-surface-variant);font-size:18px">chevron_right</span>
+            </div>
+            <button class="qcmd-add-btn" onclick="document.getElementById('qcmdDialog').showModal()">
+              <span class="material-icons-round" style="font-size:16px">add</span> 添加新命令
+            </button>
+          </div>
+          <div style="background:var(--md-surface-container-low);border-radius:16px;padding:16px">
+            <div style="font-weight:600;margin-bottom:12px">💡 如何用</div>
+            <div style="font-size:12px;color:var(--md-on-surface-variant);line-height:1.8">
+              • 点击命令 → 执行到当前激活的会话<br>
+              • 命令支持占位符 <code style="background:var(--md-surface-container-high);padding:1px 4px;border-radius:4px">{{host}}</code> <code style="background:var(--md-surface-container-high);padding:1px 4px;border-radius:4px">{{user}}</code><br>
+              • 会话级可启用 AI 只读执行（不允许危险命令）<br>
+              • AI 无法修改你的快速命令库
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ============ DIALOG 1: NEW/EDIT SESSION ============ -->
+<dialog class="forge-dialog" id="newSessionDialog">
+  <form method="dialog" style="margin:0" onsubmit="showToast('会话已保存')">
+    <div class="dlg-header">
+      <div class="dlg-icon terminal"><span class="material-icons-round" style="font-size:24px">terminal</span></div>
+      <div>
+        <div class="dlg-title">新建 SSH 会话</div>
+        <div class="dlg-subtitle">配置连接参数，保存后 AI 可通过 MCP attach 到此会话</div>
+      </div>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-tabs">
+        <button class="dlg-tab active" onclick="switchDlgTab(this,'sess-basic')">基础</button>
+        <button class="dlg-tab" onclick="switchDlgTab(this,'sess-auth')">认证</button>
+        <button class="dlg-tab" onclick="switchDlgTab(this,'sess-ai')">AI 权限</button>
+        <button class="dlg-tab" onclick="switchDlgTab(this,'sess-adv')">高级</button>
+      </div>
+      <div id="sess-basic" class="dlg-tab-panel active">
+        <div class="md-field"><label>会话名称</label><input placeholder="留空自动用主机名" value="prod-web-02"></div>
+        <div class="md-field"><label>主机地址</label>
+          <div class="md-row host"><input placeholder="192.168.1.100 或 example.com" value="10.0.1.22"><input placeholder="端口" value="22" style="text-align:center"></div>
+        </div>
+        <div class="md-field"><label>分组 / 标签</label><input placeholder="选择或创建分组" value="Linux Production"></div>
+        <div class="setting-row" style="border-bottom:0;padding-top:4px">
+          <div class="setting-label"><div class="title">开机自动连接</div><div class="desc">Chena-Shell 启动时自动建立此会话</div></div>
+          <button class="switch on" onclick="this.classList.toggle('on')"></button>
+        </div>
+      </div>
+      <div id="sess-auth" class="dlg-tab-panel">
+        <div class="md-field"><label>认证方式</label>
+          <div class="seg-toggle">
+            <button type="button" class="active" onclick="toggleSeg(this)">密码</button>
+            <button type="button" onclick="toggleSeg(this)">密钥</button>
+            <button type="button" onclick="toggleSeg(this)">SSH Agent</button>
+          </div>
+        </div>
+        <div class="md-field"><label>用户名</label><input placeholder="登录用户名" value="root"></div>
+        <div class="md-field"><label>密码</label><input type="password" placeholder="留空则连接时询问"></div>
+        <div class="setting-row" style="border-bottom:0">
+          <div class="setting-label"><div class="title">首次连接自动接受主机密钥</div><div class="desc">谨慎：可能连接到劫持的服务器</div></div>
+          <button class="switch" onclick="this.classList.toggle('on')"></button>
+        </div>
+      </div>
+      <div id="sess-ai" class="dlg-tab-panel">
+        <div class="setting-row">
+          <div class="setting-label"><div class="title">允许 AI attach 到此会话</div><div class="desc">关闭后，任何 MCP 客户端都无法接管</div></div>
+          <button class="switch on" onclick="this.classList.toggle('on')"></button>
+        </div>
+        <div class="md-field"><label>会话级安全策略</label>
+          <div class="seg-toggle">
+            <button type="button" onclick="toggleSeg(this)">严格 · 全确认</button>
+            <button type="button" class="active" onclick="toggleSeg(this)">推荐 · 只拦危险</button>
+            <button type="button" onclick="toggleSeg(this)">宽松 · 全放行</button>
+          </div>
+        </div>
+        <div class="md-field"><label>会话级黑名单（正则）</label>
+          <div class="list-manager">
+            <div class="list-mgr-item"><span class="pat">rm -rf /var/lib/</span><button type="button"><span class="material-icons-round" style="font-size:14px">close</span></button></div>
+            <div class="list-mgr-item"><span class="pat">mkfs|fdisk</span><button type="button"><span class="material-icons-round" style="font-size:14px">close</span></button></div>
+            <div class="list-mgr-add"><input placeholder="输入正则…" type="text"><button class="md-btn md-btn-outlined" style="padding:6px 14px;font-size:12px">添加</button></div>
+          </div>
+        </div>
+        <div class="setting-row" style="border-bottom:0">
+          <div class="setting-label"><div class="title">允许 AI 发起文件传输</div><div class="desc">开启后 AI 可自动上传/下载文件（冲突仍需人工确认）</div></div>
+          <button class="switch on" onclick="this.classList.toggle('on')"></button>
+        </div>
+      </div>
+      <div id="sess-adv" class="dlg-tab-panel">
+        <div class="md-field"><label>Keepalive</label>
+          <div class="md-row three"><input type="number" placeholder="间隔 秒" value="30"><input type="number" placeholder="次数" value="5"><input placeholder="压缩" value="启用"></div>
+        </div>
+        <div class="md-field"><label>Shell / 终端类型</label>
+          <div class="md-row host"><select><option>自动检测</option><option>bash</option><option>zsh</option><option>fish</option></select><input value="xterm-256color"></div>
+        </div>
+        <div class="md-field"><label>日志级别</label>
+          <div class="seg-toggle">
+            <button type="button" onclick="toggleSeg(this)">仅错误</button>
+            <button type="button" class="active" onclick="toggleSeg(this)">标准</button>
+            <button type="button" onclick="toggleSeg(this)">详细（含所有 AI 命令）</button>
+          </div>
+        </div>
+        <div class="setting-row" style="border-bottom:0">
+          <div class="setting-label"><div class="title">断线自动重连（最多 5 次）</div><div class="desc">staging-k8s 正在重连中…</div></div>
+          <button class="switch on" onclick="this.classList.toggle('on')"></button>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('newSessionDialog').close()">取消</button>
+      <button type="button" class="md-btn md-btn-outlined" onclick="showToast('连接测试成功 · 12ms')">测试连接</button>
+      <button type="submit" class="md-btn md-btn-filled">保存并连接</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 2: AI SAFETY CONFIRM ============ -->
+<dialog class="forge-dialog" id="safetyDialog">
+  <form method="dialog" style="margin:0">
+    <div class="dlg-header">
+      <div class="dlg-icon warning"><span class="material-icons-round" style="font-size:24px">gpp_maybe</span></div>
+      <div>
+        <div class="dlg-title">AI 执行需确认</div>
+        <div class="dlg-subtitle">来自 Trae 的命令命中了"推荐模式"的需确认清单</div>
+      </div>
+    </div>
+    <div class="dlg-body">
+      <div class="confirm-card">
+        <div class="confirm-icon"><span class="material-icons-round" style="font-size:22px">smart_toy</span></div>
+        <div class="confirm-content">
+          <div class="confirm-title">Trae · attach #2 · 14:22:04</div>
+          <div class="confirm-body">命中规则: <strong>systemctl restart</strong> — 可能中断服务</div>
+          <div class="confirm-args">nginx -t &amp;&amp; systemctl restart nginx</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--md-on-surface-variant);display:flex;gap:20px">
+        <span>⏱ 30 秒后自动拒绝</span>
+        <span>🔒 拒绝后 AI 接口返回 WAIT_TIMEOUT</span>
+        <span>💡 可在会话设置→AI 权限调整策略</span>
+      </div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="showToast('已拒绝，AI 继续下一个请求');document.getElementById('safetyDialog').close()">拒绝</button>
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('safetyDialog').close()">总是拒绝此类</button>
+      <button type="button" class="md-btn md-btn-outlined" onclick="document.getElementById('safetyDialog').close()">仅本次放行</button>
+      <button type="submit" class="md-btn md-btn-filled" onclick="showToast('已放行，Trae 继续执行');document.getElementById('safetyDialog').close()">放行并执行</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 3: MCP SETTINGS ============ -->
+<dialog class="forge-dialog" id="mcpDialog">
+  <form method="dialog" style="margin:0">
+    <div class="dlg-header">
+      <div class="dlg-icon mcp"><span class="material-icons-round" style="font-size:24px">smart_toy</span></div>
+      <div>
+        <div class="dlg-title">MCP Server 设置</div>
+        <div class="dlg-subtitle">当前状态：运行中 · 监听 127.0.0.1:8767</div>
+      </div>
+    </div>
+    <div class="dlg-body">
+      <div class="setting-row"><div class="setting-label"><div class="title">启用 MCP Server</div><div class="desc">允许 Trae 等 AI 客户端通过 MCP 协议 attach</div></div><button class="switch on" onclick="this.classList.toggle('on')"></button></div>
+      <div class="md-field"><label>监听地址（仅本机）</label><div class="md-row host"><input value="127.0.0.1" readonly style="background:var(--md-surface-container-high)"><input value="8767"></div></div>
+      <div class="setting-row"><div class="setting-label"><div class="title">开机自启</div><div class="desc">Chena-Shell 启动时自动拉起 MCP Server</div></div><button class="switch on" onclick="this.classList.toggle('on')"></button></div>
+      <div class="setting-row"><div class="setting-label"><div class="title">闲置自动 detach（分钟）</div><div class="desc">AI attach 后 N 分钟无操作自动交还控制权</div></div><input type="number" style="width:80px;text-align:center" value="10"></div>
+      <div class="setting-row" style="border-bottom:0"><div class="setting-label"><div class="title">显示 attach_token</div><div class="desc">AI attach 时在终端工具栏显示 token</div></div><button class="switch on" onclick="this.classList.toggle('on')"></button></div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('mcpDialog').close()">取消</button>
+      <button type="button" class="md-btn md-btn-outlined" onclick="showToast('已重启 MCP Server')">重启</button>
+      <button type="submit" class="md-btn md-btn-filled">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 4: PORT FORWARD ADD ============ -->
+<dialog class="forge-dialog" id="pfDialog">
+  <form method="dialog" style="margin:0" onsubmit="showToast('端口转发规则已添加')">
+    <div class="dlg-header">
+      <div class="dlg-icon settings"><span class="material-icons-round" style="font-size:24px">alt_route</span></div>
+      <div><div class="dlg-title">添加端口转发</div></div>
+    </div>
+    <div class="dlg-body">
+      <div class="md-field"><label>转发类型</label>
+        <div class="seg-toggle">
+          <button type="button" class="active" onclick="toggleSeg(this)">Local · 本地→远端</button>
+          <button type="button" onclick="toggleSeg(this)">Remote · 远端→本地</button>
+          <button type="button" onclick="toggleSeg(this)">Dynamic · SOCKS</button>
+        </div>
+      </div>
+      <div class="md-row host"><div class="md-field"><label>本地 / 监听 地址</label><input value="localhost"></div><div class="md-field"><label>本地端口</label><input type="number" value="8080"></div></div>
+      <div class="md-row host"><div class="md-field"><label>远端 / 目标 地址</label><input value="127.0.0.1"></div><div class="md-field"><label>远端端口</label><input type="number" value="80"></div></div>
+      <div class="md-field"><label>备注名称</label><input placeholder="例如: Web 调试" value="本地 Web 调试"></div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('pfDialog').close()">取消</button>
+      <button type="submit" class="md-btn md-btn-filled">添加</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 5: GLOBAL SETTINGS ============ -->
+<dialog class="forge-dialog" id="settingsDialog">
+  <form method="dialog" style="margin:0">
+    <div class="dlg-header">
+      <div class="dlg-icon settings"><span class="material-icons-round" style="font-size:24px">settings</span></div>
+      <div><div class="dlg-title">Chena-Shell 设置</div></div>
+    </div>
+    <div class="dlg-body">
+      <div class="dlg-tabs">
+        <button class="dlg-tab active" onclick="switchDlgTab(this,'set-gen')">通用</button>
+        <button class="dlg-tab" onclick="switchDlgTab(this,'set-term')">终端</button>
+        <button class="dlg-tab" onclick="switchDlgTab(this,'set-sec')">安全</button>
+        <button class="dlg-tab" onclick="switchDlgTab(this,'set-app')">应用</button>
+      </div>
+      <div id="set-gen" class="dlg-tab-panel active">
+        <div class="setting-row"><div class="setting-label"><div class="title">全局安全策略</div><div class="desc">所有会话默认使用，会话级可覆盖</div></div>
+          <div class="seg-toggle"><button type="button" onclick="toggleSeg(this)">严格</button><button type="button" class="active" onclick="toggleSeg(this)">推荐</button><button type="button" onclick="toggleSeg(this)">宽松</button></div>
+        </div>
+        <div class="setting-row"><div class="setting-label"><div class="title">主题</div><div class="desc">浅色 / 深色</div></div>
+          <div class="seg-toggle"><button type="button" onclick="toggleSeg(this);document.documentElement.dataset.theme='light'">浅色</button><button type="button" onclick="toggleSeg(this);document.documentElement.dataset.theme='dark'">深色</button></div>
+        </div>
+        <div class="setting-row" style="border-bottom:0"><div class="setting-label"><div class="title">默认字体</div><div class="desc">JetBrains Mono 13px</div></div>
+          <button class="md-btn md-btn-outlined" style="padding:6px 12px;font-size:12px">更改</button>
+        </div>
+      </div>
+      <div id="set-term" class="dlg-tab-panel">
+        <div class="setting-row"><div class="setting-label"><div class="title">光标样式</div></div>
+          <div class="seg-toggle"><button type="button" class="active" onclick="toggleSeg(this)">块状闪烁</button><button type="button" onclick="toggleSeg(this)">竖线</button><button type="button" onclick="toggleSeg(this)">下划线</button></div>
+        </div>
+        <div class="setting-row"><div class="setting-label"><div class="title">滚动缓冲行数</div></div><input type="number" style="width:100px;text-align:center" value="100000"></div>
+        <div class="setting-row" style="border-bottom:0"><div class="setting-label"><div class="title">复制用系统剪贴板</div></div><button class="switch on" onclick="this.classList.toggle('on')"></button></div>
+      </div>
+      <div id="set-sec" class="dlg-tab-panel">
+        <div style="font-size:12px;font-weight:600;color:var(--md-on-surface-variant);padding:4px 0;letter-spacing:.04em;text-transform:uppercase">全局黑名单 · 命中直接阻断</div>
+        <div class="list-manager">
+          <div class="list-mgr-item"><span class="pat">rm -rf /[^v]</span></div>
+          <div class="list-mgr-item"><span class="pat">mkfs|fdisk|format</span></div>
+          <div class="list-mgr-item"><span class="pat">shutdown|poweroff|halt</span></div>
+          <div class="list-mgr-item"><span class="pat">chmod 000 /etc/passwd</span></div>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--md-on-surface-variant);padding:12px 0 4px;letter-spacing:.04em;text-transform:uppercase">需确认清单 · 推荐模式下弹窗</div>
+        <div class="list-manager">
+          <div class="list-mgr-item"><span class="pat">systemctl restart</span></div>
+          <div class="list-mgr-item"><span class="pat">iptables|nft add</span></div>
+          <div class="list-mgr-item"><span class="pat">git push --force</span></div>
+        </div>
+      </div>
+      <div id="set-app" class="dlg-tab-panel">
+        <div class="setting-row"><div class="setting-label"><div class="title">版本</div><div class="desc">1.0.0-beta</div></div><button class="md-btn md-btn-outlined" style="padding:6px 12px;font-size:12px">检查更新</button></div>
+        <div class="setting-row"><div class="setting-label"><div class="title">日志存储位置</div></div><button class="md-btn md-btn-text" style="padding:6px 12px;font-size:12px">打开</button></div>
+        <div class="setting-row" style="border-bottom:0"><div class="setting-label"><div class="title">清除所有会话日志</div></div><button type="button" class="md-btn md-btn-danger" onclick="showToast('已清除');document.getElementById('settingsDialog').close()">清除</button></div>
+      </div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('settingsDialog').close()">取消</button>
+      <button type="submit" class="md-btn md-btn-filled">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 6: COMMAND HISTORY ============ -->
+<dialog class="forge-dialog" id="cmdDialog">
+  <form method="dialog" style="margin:0">
+    <div class="dlg-header">
+      <div class="dlg-icon log"><span class="material-icons-round" style="font-size:24px">history</span></div>
+      <div><div class="dlg-title">命令历史 · prod-web-02</div></div>
+    </div>
+    <div class="dlg-body">
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <input placeholder="搜索命令…" style="flex:1">
+        <div class="seg-toggle" style="min-width:200px">
+          <button type="button" class="active" onclick="toggleSeg(this)">全部</button>
+          <button type="button" onclick="toggleSeg(this)">我执行的</button>
+          <button type="button" onclick="toggleSeg(this)">🤖 AI 执行的</button>
+        </div>
+      </div>
+      <div style="max-height:320px;overflow:auto;border:1px solid var(--md-outline-variant);border-radius:12px">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--md-outline-variant);display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px">
+          <span>systemctl status nginx --no-pager</span><span style="color:var(--md-on-surface-variant);font-family:'Google Sans',sans-serif;font-size:11px">🤖 AI · 14:22:01</span>
+        </div>
+        <div style="padding:8px 12px;border-bottom:1px solid var(--md-outline-variant);display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px">
+          <span>journalctl -u nginx -n 30 --no-pager</span><span style="color:var(--md-on-surface-variant);font-family:'Google Sans',sans-serif;font-size:11px">🤖 AI · 14:22:02</span>
+        </div>
+        <div style="padding:8px 12px;border-bottom:1px solid var(--md-outline-variant);display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px">
+          <span>tail -f /var/log/nginx/error.log</span><span style="color:var(--md-on-surface-variant);font-family:'Google Sans',sans-serif;font-size:11px">👤 我 · 14:20:00</span>
+        </div>
+        <div style="padding:8px 12px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:12px">
+          <span>ps aux | grep nginx</span><span style="color:var(--md-on-surface-variant);font-family:'Google Sans',sans-serif;font-size:11px">👤 我 · 14:26:01</span>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('cmdDialog').close()">关闭</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 7: LOG VIEWER ============ -->
+<dialog class="forge-dialog" id="logDialog">
+  <form method="dialog" style="margin:0">
+    <div class="dlg-header">
+      <div class="dlg-icon log"><span class="material-icons-round" style="font-size:24px">history</span></div>
+      <div><div class="dlg-title">会话日志</div><div class="dlg-subtitle">prod-web-02 · 今日 · 最后更新 14:26:02</div></div>
+    </div>
+    <div class="dlg-body" style="max-height:400px">
+      <div id="fullLogList" class="log-list" style="max-height:320px;font-size:11px"></div>
+    </div>
+    <div class="dlg-footer">
+      <div class="dlg-footer-start"><button type="button" class="md-btn md-btn-outlined" onclick="showToast('已导出')">导出 .log</button></div>
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('logDialog').close()">关闭</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ DIALOG 8: QUICK CMD EDIT ============ -->
+<dialog class="forge-dialog" id="qcmdDialog">
+  <form method="dialog" style="margin:0" onsubmit="showToast('快速命令已保存')">
+    <div class="dlg-header">
+      <div class="dlg-icon terminal"><span class="material-icons-round" style="font-size:24px">bolt</span></div>
+      <div><div class="dlg-title">编辑快速命令</div></div>
+    </div>
+    <div class="dlg-body">
+      <div class="md-field"><label>命令名称</label><input value="系统负载快照"></div>
+      <div class="md-field"><label>命令内容</label><textarea rows="3" style="font-family:'JetBrains Mono',monospace">uptime && free -h && df -h /</textarea></div>
+      <div class="setting-row"><div class="setting-label"><div class="title">AI 可执行此命令</div><div class="desc">AI attach 期间可自动调用此条目</div></div><button class="switch on" onclick="this.classList.toggle('on')"></button></div>
+      <div class="setting-row" style="border-bottom:0"><div class="setting-label"><div class="title">执行前需确认</div></div><button class="switch" onclick="this.classList.toggle('on')"></button></div>
+    </div>
+    <div class="dlg-footer">
+      <button type="button" class="md-btn md-btn-text" onclick="document.getElementById('qcmdDialog').close()">取消</button>
+      <button type="submit" class="md-btn md-btn-filled">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ============ JAVASCRIPT ============ -->
+<script>
+document.documentElement.dataset.theme = 'light';
+
+function switchPanel(btn, id) {
+  document.querySelectorAll('.panel-tab').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  document.querySelectorAll('[id^="panel-"]').forEach(function(p){ p.style.display = 'none'; });
+  var panel = document.getElementById('panel-' + id);
+  if (panel) panel.style.display = 'block';
+}
+function switchLogTab(btn, id) {
+  document.querySelectorAll('.log-tab-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  ['term','ai','conn'].forEach(function(k){ var el = document.getElementById('log-' + k); if (el) el.style.display = (k === id) ? '' : 'none'; });
+}
+function switchDlgTab(btn, id) {
+  var dlg = btn.closest('dialog');
+  dlg.querySelectorAll('.dlg-tab').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  dlg.querySelectorAll('.dlg-tab-panel').forEach(function(p){ p.classList.remove('active'); });
+  dlg.querySelector('#' + id).classList.add('active');
+}
+function toggleSeg(btn) {
+  var parent = btn.parentElement;
+  parent.querySelectorAll('button').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+function toggleEvent(el) {
+  var args = el.querySelector('.ai-event-args');
+  if (args) args.style.display = (args.style.display === 'none') ? '' : 'none';
+}
+function showToast(msg) {
+  var c = document.getElementById('toastContainer');
+  var t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = '<span class="material-icons-round" style="font-size:18px;color:var(--md-success)">check_circle</span>' + msg;
+  c.appendChild(t);
+  setTimeout(function(){ t.style.opacity='0'; t.style.transform='translateY(8px)'; t.style.transition='.2s'; setTimeout(function(){ t.remove(); },200); },2500);
+}
+function openNewSession() { document.getElementById('newSessionDialog').showModal(); }
+
+var fullLog = [
+  ['14:20:10','SSH','Session prod-web-02 connecting…'],
+  ['14:20:15','SSH','Authenticated (publickey). Connected to 10.0.1.22:22'],
+  ['14:20:16','INFO','Session started · term=xterm-256color · cols=120 rows=40'],
+  ['14:22:00','INFO','🤖 AI ATTACH · source=Trae CLI · token=tk_a7f93'],
+  ['14:22:01','INFO','🤖 AI EXEC systemctl status nginx --no-pager → 0 · 1.2s'],
+  ['14:22:03','ERROR','🤖 AI EXEC BLOCKED · rm -rf /var/log/nginx/old · rule=global_blacklist'],
+  ['14:22:04','WARN','🤖 AI EXEC WAIT_CONFIRM · nginx -t && systemctl restart nginx'],
+  ['14:25:42','INFO','🤖 AI DETACH · duration=3m42s · reason=搞定了'],
+  ['14:26:01','INFO','人类输入缓冲 42/512B 回放完成'],
+];
+
+document.addEventListener('DOMContentLoaded', function() {
+  var list = document.getElementById('fullLogList');
+  if (list) {
+    fullLog.forEach(function(r) {
+      var row = document.createElement('div');
+      row.className = 'log-row';
+      row.innerHTML = '<span class="ts">' + r[0] + '</span><span class="lv ' + r[1] + '">' + r[1] + '</span><span>' + r[2] + '</span>';
+      list.appendChild(row);
+    });
+  }
+  setInterval(function() {
+    var cv = document.getElementById('cpuVal'), cb = document.getElementById('cpuBar');
+    var mv = document.getElementById('memVal'), mb = document.getElementById('memBar');
+    if (cv) { var c = Math.max(15,Math.min(85,parseInt(cv.textContent)+(Math.random()*10-5))); cv.textContent = c.toFixed(0); cb.style.width = c+'%'; cb.className = 'mon-bar-fill ' + (c>85?'red':c>60?'yellow':'green'); }
+    if (mv) { var m = Math.max(30,Math.min(80,parseInt(mv.textContent)+(Math.random()*6-3))); mv.textContent = m.toFixed(0); mb.style.width = m+'%'; mb.className = 'mon-bar-fill ' + (m>85?'red':m>60?'yellow':'green'); }
+  }, 2500);
+});
+</script>
+</body>
+</html>

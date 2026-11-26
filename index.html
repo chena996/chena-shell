@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark" style="background:#141218">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Chena-Shell</title>
+    <!-- 同步脚本：在 CSS/React 加载前就读 localStorage 设置主题，避免白屏闪烁 -->
+    <script>
+      (function(){
+        try {
+          var t = localStorage.getItem('chena-shell-theme') || 'dark';
+          document.documentElement.setAttribute('data-theme', t);
+        } catch(e) {}
+      })();
+    </script>
+  </head>
+  <body style="background:#141218;margin:0">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

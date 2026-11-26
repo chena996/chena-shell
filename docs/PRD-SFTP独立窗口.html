@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>PRD — SFTP 独立窗口模块拆分</title>
+<style>
+  :root {
+    --bg: #FAFAFA; --surface: #FFFFFF; --border: #E5E7EB;
+    --text: #111827; --text-2: #4B5563; --text-3: #9CA3AF;
+    --primary: #2563EB; --primary-soft: #EFF6FF;
+    --code-bg: #F3F4F6; --accent: #059669;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+         margin: 0; background: var(--bg); color: var(--text); line-height: 1.7; font-size: 14px; }
+  .container { max-width: 920px; margin: 0 auto; padding: 48px 32px 120px; }
+  h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -.02em; }
+  .subtitle { color: var(--text-2); font-size: 13px; margin-bottom: 32px; }
+  h2 { font-size: 20px; margin: 40px 0 16px; padding-bottom: 8px;
+       border-bottom: 2px solid var(--primary); display: inline-block; }
+  h3 { font-size: 15px; margin: 24px 0 10px; color: var(--primary); }
+  h4 { font-size: 13px; margin: 16px 0 8px; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; }
+  p { margin: 8px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); font-weight: 600; color: var(--text-2); }
+  code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px;
+         font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; }
+  blockquote { border-left: 3px solid var(--primary); padding: 4px 16px; margin: 12px 0;
+               background: var(--primary-soft); color: var(--text-2); font-size: 13px; }
+  ul { padding-left: 24px; }
+  li { margin: 4px 0; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px;
+         font-weight: 600; margin-right: 6px; }
+  .tag-p0 { background: #FEE2E2; color: #991B1B; }
+  .tag-p1 { background: #FEF3C7; color: #92400E; }
+  .tag-tbd { background: #F3F4F6; color: #6B7280; }
+  .wireframe { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+               padding: 16px; margin: 16px 0; font-family: 'JetBrains Mono', Consolas, monospace;
+               font-size: 11px; line-height: 1.5; white-space: pre; color: var(--text-2);
+               overflow-x: auto; }
+  .wireframe .hl { color: var(--primary); font-weight: 600; }
+  .wireframe .ok { color: var(--accent); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+          padding: 16px; margin: 12px 0; }
+  .card-title { font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+  .foot-note { color: var(--text-3); font-size: 12px; margin-top: 24px; padding-top: 12px;
+               border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>SFTP 独立窗口模块拆分</h1>
+<div class="subtitle">Chena-Shell v1.2 — 产品需求文档 · 2026-11-18</div>
+
+<!-- ===================================================================== -->
+<h2>1. 背景与目标</h2>
+
+<h4>观察到的问题</h4>
+<p>Chena-Shell v1.1 把 SFTP 内嵌在底部工具栏（Terminal / SFTP / 快速命令 / 日志 / 资源监控 五个 tab）。实际使用中出现：</p>
+<ul>
+  <li><strong>空间局促</strong>：底部面板高度有限，左右双面板文件列表只能各显示 3~4 行，浏览大量文件时必须频繁滚动</li>
+  <li><strong>上下文切换</strong>：用户在终端跑命令同时需要传文件，切 tab 就打断终端视线</li>
+  <li><strong>无法并行</strong>：不能一边在终端里操作，一边在 SFTP 里拖拽大文件</li>
+  <li><strong>不符合用户心智模型</strong>：用户熟悉的 WinSCP / Bitvise SSH Client 都是 SFTP 独立窗口，和终端并列</li>
+</ul>
+
+<h4>产品决策</h4>
+<p>将 SFTP 从底部工具栏拆出，改为<strong>独立弹出窗口</strong>，在左侧 Sidebar 会话卡片上增加 SFTP 入口按钮。底部工具栏恢复为固定高度，只保留 Terminal 相关 tab。</p>
+
+<h4>可观测的结果</h4>
+<ul>
+  <li>用户从 Sidebar 点 SFTP 按钮 → 弹出独立 SFTP 窗口（可拖拽、最大化）</li>
+  <li>SFTP 窗口完整采用 WinSCP 风格左右双面板 + 顶部工具栏 + 底部传输队列</li>
+  <li>SFTP 窗口和主终端窗口<strong>可以并行</strong>：主窗口终端继续跑命令，SFTP 窗口独立操作</li>
+</ul>
+
+<!-- ===================================================================== -->
+<h2>2. 范围</h2>
+
+<h4>P0 — 完成核心旅程所需的全部功能</h4>
+<table>
+<tr><th>模块</th><th>入口</th><th>完成条件</th></tr>
+<tr><td>Sidebar SFTP 入口</td><td>会话卡片第二行新增 SFTP 按钮</td><td>点击后弹出独立窗口</td></tr>
+<tr><td>SFTP 主窗口框架</td><td>Tauri 新 Webview 窗口</td><td>窗口尺寸 1000×640，可拖拽/最大化/最小化</td></tr>
+<tr><td>左右双面板（WinSCP 风格）</td><td>本地面板 + 远方面板</td><td>都有地址栏、目录返回、文件列表、右键菜单</td></tr>
+<tr><td>文件操作</td><td>右键菜单 / 拖拽</td><td>上传、下载、重命名、删除、改权限、新建目录</td></tr>
+<tr><td>传输队列</td><td>底部可折叠面板</td><td>显示进行中/等待中/完成/失败，支持取消</td></tr>
+<tr><td>底部工具栏瘦身</td><td>原 BottomPanel</td><td>移除 SFTP tab，恢复固定高度（不再可拖动）</td></tr>
+</table>
+
+<h4>P1 — 相关但非必要</h4>
+<ul>
+  <li>SFTP 窗口记住上次位置和尺寸（localStorage）</li>
+  <li>本地文件路径历史（最近访问过的目录）</li>
+  <li>传输队列持久化（关闭窗口后下次打开恢复未完成任务）</li>
+</ul>
+
+<h4>明确不做</h4>
+<ul>
+  <li>不再实现 SCP 协议（只用 SFTP subsystem）</li>
+  <li>不再实现同步 Mirror（WinSCP 的 Synchronize）</li>
+  <li>不再实现远程文件搜索</li>
+  <li>底部工具栏的 splitter 拖拽功能整体移除</li>
+</ul>
+
+<!-- ===================================================================== -->
+<h2>3. 产品模型</h2>
+
+<h4>核心对象</h4>
+<table>
+<tr><th>对象</th><th>说明</th><th>关键字段</th></tr>
+<tr><td><strong>Session</strong></td><td>SSH 连接配置 + 状态</td><td>id, name, host, port, username, connected: bool, transports[]</td></tr>
+<tr><td><strong>SftpWindow</strong></td><td>每个 Session 最多一个 SFTP 窗口</td><td>window_id, session_id, local_path, remote_path, open: bool</td></tr>
+<tr><td><strong>TransferJob</strong></td><td>单次传输任务</td><td>id, session_id, direction(↑↓), local_path, remote_path, size, progress, status, started_at</td></tr>
+</table>
+
+<h4>状态机 — SFTP 窗口</h4>
+<table>
+<tr><th>状态</th><th>进入条件</th><th>允许操作</th></tr>
+<tr><td>不存在</td><td>Session 从未打开过 SFTP 或窗口已关闭</td><td>Sidebar 点 SFTP → 创建窗口</td></tr>
+<tr><td>已打开（未连接）</td><td>窗口已弹出但 Session.connected=false</td><td>显示远方面板"会话未连接"占位，本地面板可用</td></tr>
+<tr><td>已打开（已连接）</td><td>Session.connected=true</td><td>完整功能可用</td></tr>
+<tr><td>最小化</td><td>用户点最小化</td><td>传输继续在后台运行，Sidebar SFTP 按钮显示数字角标</td></tr>
+</table>
+
+<!-- ===================================================================== -->
+<h2>4. 功能需求</h2>
+
+<!-- ---------- FR-01 ---------- -->
+<h3>FR-01 · Sidebar SFTP 入口</h3>
+
+<h4>Purpose</h4>
+<p>用户从会话卡片直接触发 SFTP 窗口，不需要先打开终端或底部工具栏。</p>
+
+<h4>Layout（Sidebar 会话卡片第二行）</h4>
+<div class="wireframe">
+┌─────────────────────────────────────────┐
+│  <span class="ok">●</span>  my-server      │  ← 第一行：绿点 + 会话名
+│  ubuntu@192.168.1.100:22                │
+│  <span class="hl">[SFTP]</span>  [断开]  [🗑]  │  ← 第二行按钮组（新增 SFTP）
+└─────────────────────────────────────────┘
+</div>
+
+<h4>Trigger 处理规则</h4>
+<table>
+<tr><th>场景</th><th>行为</th></tr>
+<tr><td>Session 未连接，点 SFTP</td><td>先自动发起连接 → 连接成功 → 打开 SFTP 窗口</td></tr>
+<tr><td>Session 已连接，点 SFTP</td><td>直接打开/激活 SFTP 窗口</td></tr>
+<tr><td>SFTP 窗口已打开（被遮挡）</td><td>窗口 focus + 提到最前</td></tr>
+<tr><td>SFTP 窗口已最小化</td><td>还原窗口</td></tr>
+</table>
+
+<h4>按钮状态</h4>
+<table>
+<tr><th>条件</th><th>按钮样式</th><th>点击行为</th></tr>
+<tr><td>Session.connected=true</td><td>实心主题色</td><td>打开/激活 SFTP 窗口</td></tr>
+<tr><td>Session.connected=false</td><td>灰色，hover 提示"需先连接"</td><td>先连接，成功后打开 SFTP</td></tr>
+<tr><td>SFTP 已打开 + 有活跃传输</td><td>按钮右上角显示数字角标（运行中 job 数）</td><td>激活窗口</td></tr>
+</table>
+
+<!-- ---------- FR-02 ---------- -->
+<h3>FR-02 · SFTP 独立窗口框架</h3>
+
+<h4>Purpose</h4>
+<p>SFTP 作为独立 Tauri Webview 窗口，拥有自己的生命周期、标题栏和关闭/最小化/最大化。</p>
+
+<h4>窗口规格</h4>
+<table>
+<tr><th>属性</th><th>值</th><th>说明</th></tr>
+<tr><td>窗口类名</td><td>"sftp-{session_id}"</td><td>每个 Session 独立窗口实例</td></tr>
+<tr><td>默认尺寸</td><td>1000 × 640</td><td>首次打开</td></tr>
+<tr><td>最小尺寸</td><td>720 × 480</td><td>防止面板挤到不可用</td></tr>
+<tr><td>默认位置</td><td>主窗口偏右 40px</td><td>避免完全遮挡主窗口</td></tr>
+<tr><td>窗口标题</td><td>"SFTP — {session.name} ({session.username}@{host})"</td><td>动态更新</td></tr>
+<tr><td>数量限制</td><td>每个 Session 最多 1 个 SFTP 窗口</td><td>点重复打开按钮 → focus 已有窗口</td></tr>
+</table>
+
+<h4>关闭窗口行为</h4>
+<table>
+<tr><th>场景</th><th>行为</th></tr>
+<tr><td>无活跃传输，用户点 ✕</td><td>直接关闭窗口，传输队列丢失（P0 不持久化）</td></tr>
+<tr><td>有活跃传输（进行中），用户点 ✕</td><td>弹出确认对话框："有 N 个文件正在传输，确定关闭？关闭后传输将被取消"</td></tr>
+<tr><td>有等待中传输，用户点 ✕</td><td>同上（警告弱一档："有 N 个等待中的传输任务"）</td></tr>
+<tr><td>最小化</td><td>窗口缩到任务栏，传输继续在后台运行</td></tr>
+</table>
+
+<!-- ---------- FR-03 ---------- -->
+<h3>FR-03 · 左右双面板（WinSCP 风格）</h3>
+
+<h4>Purpose</h4>
+<p>完整抄 WinSCP / Bitvise SSH Client 经典布局。本地和远端文件系统并列显示，通过拖拽或右键触发传输。</p>
+
+<h4>完整窗口布局</h4>
+<div class="wireframe">
+┌──────────────────────────────────────────────────────────────┐
+│ SFTP — my-server (ubuntu@192.168.1.100)               _ □ ✕ │
+├──────────────────────────────────────────────────────────────┤
+│ 📁 <span class="hl">[本地]</span>   📁 [远端]   ⬆上传  ⬇下载  ← 顶部工具栏    │
+│ ⬆ C:\Users\demo  [路径地址栏...]  [刷新 ▼]                  │
+├────────────────────────┬─────────────────────────────────────┤
+│ <span class="hl">本地文件系统</span>       │ <span class="hl">远端文件系统</span>               │
+│ 📄 README.md     2.1KB │ 📁 logs              ─              │
+│ 📁 src              ─   │ 📄 config.yaml      4.3KB           │
+│ 📄 deploy.sh    12.5KB │ 📄 main.py         87.2KB           │
+│ 📁 docs             ─  │ 📁 data               ─              │
+│                        │ 📄 .bashrc           3.1KB           │
+│ [右键 = 上传/重命名/删除]│ [右键 = 下载/改权限/删除/移动]       │
+├────────────────────────┴─────────────────────────────────────┤
+│ 传输队列  ▼  [可折叠]                                       │
+│ ⏬ main.py    ubuntu@... → C:\downloads    ████████░░  78%  ⏸ │
+│ ⬆ index.html  C:\projects → /var/www/html     ████████  100%  ✓ │
+│ [清理已完成]                                          [全部暂停] │
+└──────────────────────────────────────────────────────────────┘
+</div>
+
+<h4>单面板详细结构</h4>
+<table>
+<tr><th>区域</th><th>元素</th><th>行为</th></tr>
+<tr><td>标题</td><td>"本地 🖥" / "远端 ☁"</td><td>远端状态灯：绿=已连接 / 红=未连接</td></tr>
+<tr><td>路径栏</td><td>可编辑输入框 + 📁 选择器按钮</td><td>回车 = 跳转；📁 = 系统对话框（仅本地）</td></tr>
+<tr><td>目录返回</td><td>↑ 按钮</td><td>返回父目录（本地 `..` / 远端 `cd ..`）</td></tr>
+<tr><td>文件列表</td><td>图标 + 名称 + 大小 + 类型</td><td>单击选中；双击进入目录；右键弹出上下文菜单</td></tr>
+<tr><td>选中行</td><td>整行高亮（主题色容器色）</td><td>本地和远端各自独立维护选中状态</td></tr>
+<tr><td>空状态</td><td>"空目录" + 灰文字</td><td>允许右键 → 新建目录</td></tr>
+<tr><td>错误状态</td><td>红框 + 错误信息（如 Permission denied）</td><td>提供"重试"按钮</td></tr>
+</table>
+
+<h4>拖拽传输规则</h4>
+<table>
+<tr><th>拖拽方向</th><th>触发的动作</th></tr>
+<tr><td>本地 → 远方面板</td><td>自动创建上传任务（多文件 = 多 job 并行）</td></tr>
+<tr><td>远端 → 本地面板</td><td>自动创建下载任务</td></tr>
+<tr><td>本地 → 本地（同面板内拖拽）</td><td>不触发（P0 不做本地移动）</td></tr>
+<tr><td>远端 → 远端（同面板内拖拽）</td><td>不触发（P0 不做远端移动）</td></tr>
+<tr><td>拖拽到目标面板空白处</td><td>同上（整个面板都是有效 drop zone）</td></tr>
+<tr><td>拖拽文件不存在时松手</td><td>忽略，不创建任务</td></tr>
+</table>
+
+<!-- ---------- FR-04 ---------- -->
+<h3>FR-04 · 文件操作（右键菜单）</h3>
+
+<h4>本地文件右键菜单</h4>
+<table>
+<tr><th>菜单项</th><th>触发条件</th><th>行为</th></tr>
+<tr><td>📤 上传到 {remote_path}</td><td>选中的是文件</td><td>直接读本地文件 → 上传到远端当前目录，不弹窗</td></tr>
+<tr><td>✏️ 重命名</td><td>始终可用</td><td>prompt 新名称 → 后端 `rename`</td></tr>
+<tr><td>🗑 删除</td><td>始终可用</td><td>确认对话框 → 后端 `delete`</td></tr>
+<tr><td>📄 新建文本文件</td><td>空白处右键</td><td>prompt 文件名 → 创建空文件</td></tr>
+<tr><td>📁 新建文件夹</td><td>空白处右键</td><td>prompt 文件夹名 → 创建目录</td></tr>
+<tr><td>ℹ️ 属性</td><td>始终可用</td><td>显示路径、大小、修改时间</td></tr>
+</table>
+
+<h4>远端文件右键菜单</h4>
+<table>
+<tr><th>菜单项</th><th>触发条件</th><th>行为</th></tr>
+<tr><td>📥 下载到本地</td><td>选中的是文件</td><td>保存到本地当前目录，直接下载不弹窗</td></tr>
+<tr><td>✏️ 重命名</td><td>始终可用</td><td>prompt 新名称 → SSH `mv old new`</td></tr>
+<tr><td>🗑 删除</td><td>始终可用</td><td>确认对话框 → SSH `rm`（文件）/ `rm -r`（目录）</td></tr>
+<tr><td>🔧 修改权限</td><td>始终可用</td><td>打开 9 按钮 chmod 矩阵对话框</td></tr>
+<tr><td>📁 新建文件夹</td><td>空白处右键</td><td>prompt 文件夹名 → SSH `mkdir`</td></tr>
+<tr><td>🔗 复制路径</td><td>始终可用</td><td>完整远端路径 → 剪贴板</td></tr>
+<tr><td>ℹ️ 查看详情</td><td>始终可用</td><td>弹窗：权限、所有者、大小、修改时间</td></tr>
+</table>
+
+<h4>chmod 矩阵对话框（已在当前 BottomPanel 实现）</h4>
+<ul>
+  <li>三行三列 9 个可切换按钮：owner/group/other × r/w/x</li>
+  <li>底部实时显示计算结果：<code>当前权限: 755</code></li>
+  <li>从远端文件权限字符串（如 <code>-rw-r--r--</code>）反向初始化按钮状态</li>
+  <li>点"应用" → 调后端 `sftp_chmod` → 刷新远方面板</li>
+</ul>
+
+<!-- ---------- FR-05 ---------- -->
+<h3>FR-05 · 传输队列</h3>
+
+<h4>Purpose</h4>
+<p>底部可折叠面板，实时显示所有传输任务的进度、速度和状态。</p>
+
+<h4>单行 job 显示</h4>
+<table>
+<tr><th>字段</th><th>示例</th><th>说明</th></tr>
+<tr><td>方向箭头</td><td>⏬ 或 ⬆</td><td>下载/上传</td></tr>
+<tr><td>文件名</td><td><code>main.py</code></td><td>源文件名</td></tr>
+<tr><td>路径</td><td><code>/var/app → C:\downloads</code></td><td>起止路径，中间用箭头连接</td></tr>
+<tr><td>进度条</td><td><code>████████░░░░ 65%</code></td><td>HTML5 progress 元素或自绘 div</td></tr>
+<tr><td>速度</td><td><code>2.3 MB/s</code></td><td>瞬时速度（P1，P0 可省略）</td></tr>
+<tr><td>控制按钮</td><td>⏸ / ▶ / ⨯</td><td>暂停 / 继续 / 取消（仅进行中显示）</td></tr>
+<tr><td>状态标签</td><td>✓ 完成 / ✕ 失败 / ⏸ 已暂停 / ⏳ 等待中</td><td>不同颜色</td></tr>
+</table>
+
+<h4>队列操作</h4>
+<table>
+<tr><th>操作</th><th>适用状态</th><th>行为</th></tr>
+<tr><td>暂停单个</td><td>进行中</td><td>停在当前进度，保留已下载部分</td></tr>
+<tr><td>继续单个</td><td>已暂停</td><td>从断点继续（后端用 <code>tail -c</code> / <code>seek</code>）[Assumption, P1]</td></tr>
+<tr><td>取消单个</td><td>任何状态</td><td>停止传输，已下载部分删除（上传则远端残留部分文件，下次重试覆盖）</td></tr>
+<tr><td>全部暂停</td><td>有进行中任务</td><td>暂停所有进行中</td></tr>
+<tr><td>全部取消</td><td>任何状态</td><td>取消所有（需二次确认）</td></tr>
+<tr><td>清理已完成</td><td>有完成/失败</td><td>从队列移除终态 job</td></tr>
+</table>
+
+<!-- ---------- FR-06 ---------- -->
+<h3>FR-06 · 底部工具栏瘦身</h3>
+
+<h4>Purpose</h4>
+<p>SFTP 拆走后，底部工具栏恢复固定高度，承载 Terminal 辅助功能 tab。</p>
+
+<h4>变更</h4>
+<table>
+<tr><th>项目</th><th>变更</th></tr>
+<tr><td>Tab 列表</td><td>移除 "SFTP" tab；保留：终端会话 / 快速命令 / 日志 / 资源监控</td></tr>
+<tr><td>高度</td><td>恢复固定高度 200px（或 CSS <code>flex: 0 0 200px</code>）</td></tr>
+<tr><td>Splitter</td><td>完全移除：删除 App.jsx 里的 isDragging / splitterRef / panelRatio 状态和相关 JSX</td></tr>
+<tr><td>初始渲染</td><td>BottomPanel 默认展开，不再依赖 splitter</td></tr>
+</table>
+
+<!-- ===================================================================== -->
+<h2>5. 共享规则与异常</h2>
+
+<h4>Session 连接状态联动</h4>
+<ul>
+  <li>SFTP 窗口的远方面板列表刷新<strong>依赖 Session.connected=true</strong></li>
+  <li>如果 Session 断连，SFTP 窗口自动：① 远方面板清空 ② 传输队列中所有进行中 job 失败 ③ 标题栏显示 "(已断开)"</li>
+  <li>Session 重连后，SFTP 窗口不会自动恢复传输 — 需要用户手动重新发起（避免半拉子状态）</li>
+</ul>
+
+<h4>错误处理</h4>
+<table>
+<tr><th>错误场景</th><th>处理方式</th></tr>
+<tr><td>Permission denied（403）</td><td>传输 job 标记 ✕ 失败，路径栏显示红色提示；已下载/上传的部分文件清理（P1）</td></tr>
+<tr><td>文件太大（>100MB）</td><td>警告对话框："大文件 {n}MB，上传可能很慢"</td></tr>
+<tr><td>网络中断</td><td>SSH 层自动重连（现有 russh 实现）；重连恢复后传输 job 暂停</td></tr>
+<tr><td>SFTP subsystem 不可用</td><td>远方面板显示："服务器未启动 SFTP subsystem (sftp-server)"，建议用 SCP 替代</td></tr>
+<tr><td>删除目录非空</td><td>二次确认 "确定删除 {dir} 及其 {n} 个文件？此操作不可恢复"</td></tr>
+</table>
+
+<h4>并发控制 [Assumption, TBD]</h4>
+<ul>
+  <li>P0：同一 Session 最多 <strong>1 个上传 + 1 个下载</strong> 并发，其他进入等待队列</li>
+  <li>P1：允许用户在 Settings 里调整并发数（1~4）</li>
+</ul>
+
+<!-- ===================================================================== -->
+<h2>6. 开放问题</h2>
+
+<table>
+<tr><th>#</th><th>问题</th><th>影响范围</th><th>状态</th></tr>
+<tr><td>Q1</td><td>SFTP 独立窗口是 Tauri multi-window 还是应用内 fullscreen overlay？</td><td>架构决策</td><td><span class="tag tag-tbd">假设 multi-window</span> — Tauri window.create + webview 隔离</td></tr>
+<tr><td>Q2</td><td>后端命令怎么跨 Webview 共享状态？Session 是主窗口 State，SFTP 窗口也要读</td><td>架构决策</td><td><span class="tag tag-tbd">需确认</span> — Tauri 全局 AppHandle + State<AppState> 可跨窗口</td></tr>
+<tr><td>Q3</td><td>传输大文件时用 base64 + SSH exec 分段（现有实现）性能够吗？</td><td>技术风险</td><td><span class="tag tag-tbd">P0 先复用现有，P1 评估 russh SFTP subsystem</span></td></tr>
+<tr><td>Q4</td><td>SFTP 窗口关闭后，未完成传输怎么办？</td><td>产品决策</td><td><span class="tag tag-tbd">P0 直接取消并警告；P1 持久化到 localStorage</span></td></tr>
+</table>
+
+<div class="foot-note">
+Chena-Shell PRD · SFTP 独立窗口模块拆分 · 2026-11-18 · Medium 深度（新模块）
+</div>
+
+</div>
+</body>
+</html>

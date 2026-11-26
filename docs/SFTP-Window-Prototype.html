@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SFTP — Chena-Shell 原型</title>
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons|Material+Icons+Round" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ================ 设计 Token（和主应用一致） ================ */
+:root, html[data-theme='light'] {
+  --md-primary:#4F46E5; --md-on-primary:#FFFFFF;
+  --md-primary-container:#E0E7FF; --md-on-primary-container:#1E1B4B;
+  --md-surface:#FBF9FF; --md-surface-bright:#FEF7FF;
+  --md-surface-container-lowest:#FFFFFF;
+  --md-surface-container-low:#F7F2FA;
+  --md-surface-container:#F3EDF7;
+  --md-surface-container-high:#ECE6F0;
+  --md-surface-container-highest:#E6E0E9;
+  --md-on-surface:#1D1B20; --md-on-surface-variant:#49454F;
+  --md-outline:#79747E; --md-outline-variant:#CAC4D0;
+  --terminal-bg:#FFFFFF;
+  --success:#059669; --danger:#DC2626; --warning:#D97706;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.08);
+  --shadow-md:0 4px 12px rgba(0,0,0,.10);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.15);
+}
+html[data-theme='dark'] {
+  --md-primary:#B4B0FF; --md-on-primary:#2C2768;
+  --md-primary-container:#433D8B; --md-on-primary-container:#E4DFFF;
+  --md-surface:#141218; --md-surface-bright:#3B383E;
+  --md-surface-container-lowest:#0F0D13;
+  --md-surface-container-low:#1D1B20;
+  --md-surface-container:#211F26;
+  --md-surface-container-high:#2B2930;
+  --md-surface-container-highest:#36343B;
+  --md-on-surface:#E6E1E5; --md-on-surface-variant:#CAC4D0;
+  --md-outline:#938F99; --md-outline-variant:#49454F;
+  --terminal-bg:#1E1E1E;
+  --success:#34D399; --danger:#F87171; --warning:#FBBF24;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --shadow-md:0 4px 12px rgba(0,0,0,.5);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.6);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+  background: var(--md-surface); color: var(--md-on-surface);
+  font-size: 13px; user-select: none;
+}
+code, .mono { font-family: 'JetBrains Mono', Consolas, monospace; }
+
+.material-icons, .material-icons-round { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+
+/* ================ 窗口外框 ================ */
+.window-frame {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+}
+
+/* 自定义标题栏（模拟 Tauri 窗口） */
+.titlebar {
+  height: 38px; flex-shrink: 0;
+  background: var(--md-surface-container-high);
+  border-bottom: 1px solid var(--md-outline-variant);
+  display: flex; align-items: center; padding: 0 12px; gap: 10px;
+  -webkit-app-region: drag;
+}
+.titlebar .icon-btn { -webkit-app-region: no-drag; }
+.titlebar-icon {
+  width: 20px; height: 20px; border-radius: 6px;
+  background: var(--md-primary); display: grid; place-items: center;
+}
+.titlebar-icon span { font-size: 12px; color: var(--md-on-primary); }
+.titlebar-title { font-size: 12px; font-weight: 600; flex: 1; }
+.titlebar-controls { display: flex; gap: 4px; }
+.titlebar-controls button {
+  width: 28px; height: 28px; border-radius: 6px; border: 0; cursor: pointer;
+  background: transparent; color: var(--md-on-surface-variant);
+  display: grid; place-items: center;
+}
+.titlebar-controls button:hover { background: var(--md-surface-container-highest); color: var(--md-on-surface); }
+
+/* ================ 顶部工具栏 ================ */
+.toolbar {
+  height: 48px; flex-shrink: 0;
+  background: var(--md-surface-container);
+  border-bottom: 1px solid var(--md-outline-variant);
+  display: flex; align-items: center; gap: 6px; padding: 0 10px;
+}
+.tb-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--md-on-surface); cursor: pointer; font-size: 12px;
+  font-family: inherit; transition: all .12s;
+}
+.tb-btn:hover { background: var(--md-surface-container-high); }
+.tb-btn:active { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.tb-btn.primary {
+  background: var(--md-primary); color: var(--md-on-primary);
+}
+.tb-btn.primary:hover { filter: brightness(1.08); background: var(--md-primary); }
+.tb-btn .material-icons-round { font-size: 18px; }
+.tb-sep { width: 1px; height: 22px; background: var(--md-outline-variant); margin: 0 4px; }
+.tb-spacer { flex: 1; }
+.tb-connection {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 12px;
+  background: var(--md-surface-container-low);
+  font-size: 11px; color: var(--md-on-surface-variant);
+}
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success); box-shadow: 0 0 8px var(--success);
+}
+
+/* ================ 主内容区 ================ */
+.main-area {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
+.panels {
+  flex: 1; display: grid; grid-template-columns: 1fr 4px 1fr;
+  min-height: 0;
+}
+.panel {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--md-surface-container-lowest);
+}
+.splitter-v {
+  background: var(--md-outline-variant); cursor: col-resize;
+  transition: background .12s;
+}
+.splitter-v:hover, .splitter-v.active {
+  background: var(--md-primary);
+}
+
+/* 面板 header */
+.panel-header {
+  height: 36px; flex-shrink: 0;
+  background: var(--md-surface-container);
+  border-bottom: 1px solid var(--md-outline-variant);
+  display: flex; align-items: center; padding: 0 10px; gap: 8px;
+  font-size: 12px; font-weight: 600; color: var(--md-on-surface);
+}
+.panel-header .material-icons-round { font-size: 16px; color: var(--md-primary); }
+.panel-header.remote .material-icons-round { color: var(--success); }
+
+/* 地址栏 */
+.path-bar {
+  height: 30px; flex-shrink: 0;
+  background: var(--md-surface-container-low);
+  border-bottom: 1px solid var(--md-outline-variant);
+  display: flex; align-items: center; gap: 4px; padding: 3px 6px;
+}
+.path-btn {
+  width: 24px; height: 24px; border-radius: 6px; border: 0;
+  background: transparent; color: var(--md-on-surface-variant);
+  cursor: pointer; display: grid; place-items: center;
+}
+.path-btn:hover { background: var(--md-surface-container-high); color: var(--md-on-surface); }
+.path-input {
+  flex: 1; height: 24px; border-radius: 6px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-lowest);
+  color: var(--md-on-surface); padding: 0 8px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  outline: none; transition: border-color .12s;
+}
+.path-input:focus { border-color: var(--md-primary); }
+
+/* 文件列表 */
+.file-list {
+  flex: 1; overflow: auto;
+  font-size: 12px;
+}
+.file-list::-webkit-scrollbar { width: 8px; height: 8px; }
+.file-list::-webkit-scrollbar-thumb {
+  background: var(--md-outline-variant); border-radius: 4px;
+}
+.file-list::-webkit-scrollbar-thumb:hover { background: var(--md-outline); }
+
+.file-row {
+  display: grid; grid-template-columns: 28px 1fr 90px 70px;
+  align-items: center;
+  padding: 5px 10px; cursor: pointer;
+  border-bottom: 1px solid transparent;
+  gap: 8px;
+  transition: background .08s;
+}
+.file-row:hover { background: var(--md-surface-container); }
+.file-row.selected {
+  background: var(--md-primary-container) !important;
+  color: var(--md-on-primary-container);
+}
+.file-row.selected .file-icon { color: var(--md-on-primary-container); }
+.file-row.selected .file-size, .file-row.selected .file-perms { color: var(--md-on-primary-container); }
+.file-row.drag-over {
+  background: var(--md-primary-container);
+  outline: 2px dashed var(--md-primary);
+  outline-offset: -2px;
+}
+.file-icon {
+  width: 28px; height: 28px; border-radius: 6px;
+  display: grid; place-items: center;
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface-variant);
+}
+.file-icon.folder { background: var(--md-primary-container); color: var(--md-primary); }
+.file-icon.exec { background: #D1FAE5; color: #047857; }
+html[data-theme='dark'] .file-icon.exec { background: rgba(52,211,153,.2); color: #34D399; }
+.file-icon.link { background: #DBEAFE; color: #1D4ED8; }
+html[data-theme='dark'] .file-icon.link { background: rgba(147,197,253,.2); color: #93C5FD; }
+
+.file-name {
+  font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-size, .file-perms {
+  font-size: 11px; color: var(--md-on-surface-variant);
+  font-family: 'JetBrains Mono', monospace;
+}
+.file-size { text-align: right; }
+.file-perms { text-align: right; }
+
+/* 表头（粘性） */
+.file-header {
+  position: sticky; top: 0; z-index: 2;
+  display: grid; grid-template-columns: 28px 1fr 90px 70px;
+  padding: 6px 10px; gap: 8px;
+  font-size: 11px; font-weight: 600;
+  color: var(--md-on-surface-variant);
+  background: var(--md-surface-container);
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.file-header .col-size, .file-header .col-perms { text-align: right; }
+
+/* 空状态 */
+.empty-state {
+  padding: 40px 20px; text-align: center; color: var(--md-on-surface-variant);
+  font-size: 12px;
+}
+.empty-state .material-icons-round { font-size: 36px; margin-bottom: 8px; opacity: .5; }
+
+/* ================ 底部传输队列 ================ */
+.transfer-panel {
+  flex-shrink: 0; border-top: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  transition: height .2s;
+}
+.tp-header {
+  height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  cursor: pointer; user-select: none;
+  font-size: 12px; font-weight: 600; color: var(--md-on-surface);
+}
+.tp-header .material-icons-round { font-size: 16px; color: var(--md-primary); }
+.tp-header .count {
+  background: var(--md-primary); color: var(--md-on-primary);
+  font-size: 10px; padding: 1px 6px; border-radius: 8px; font-weight: 600;
+}
+.tp-header .spacer { flex: 1; }
+.tp-header .actions { display: flex; gap: 4px; }
+.tp-header .tb-btn { height: 26px; padding: 0 8px; font-size: 11px; }
+
+.tp-body { height: 160px; overflow-y: auto; padding: 6px 8px; }
+.tp-body::-webkit-scrollbar { width: 6px; }
+.tp-body::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 3px; }
+
+.job-row {
+  display: grid;
+  grid-template-columns: 24px 1fr 180px 60px 24px;
+  align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px;
+  background: var(--md-surface-container-low);
+  margin-bottom: 4px; font-size: 11px;
+}
+.job-row.upload { border-left: 3px solid var(--md-primary); }
+.job-row.download { border-left: 3px solid var(--success); }
+.job-row.done { opacity: .65; }
+.job-row.error { border-left-color: var(--danger); }
+.job-arrow { font-size: 14px; text-align: center; }
+.job-row.upload .job-arrow { color: var(--md-primary); }
+.job-row.download .job-arrow { color: var(--success); }
+.job-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-path { font-size: 10px; color: var(--md-on-surface-variant); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+.progress-wrap { height: 6px; background: var(--md-surface-container-highest); border-radius: 3px; overflow: hidden; }
+.progress-bar {
+  height: 100%; border-radius: 3px; transition: width .2s;
+  background: linear-gradient(90deg, var(--md-primary), var(--md-primary-container));
+}
+.job-row.download .progress-bar { background: linear-gradient(90deg, var(--success), #6EE7B7); }
+.job-row.done .progress-bar { background: var(--success); width: 100% !important; }
+.job-row.error .progress-bar { background: var(--danger); }
+.job-pct { font-family: 'JetBrains Mono', monospace; text-align: right; color: var(--md-on-surface-variant); }
+.job-ctrl { display: grid; place-items: center; }
+.job-ctrl button {
+  width: 22px; height: 22px; border-radius: 50%; border: 0;
+  background: transparent; color: var(--md-on-surface-variant);
+  cursor: pointer; display: grid; place-items: center;
+}
+.job-ctrl button:hover { background: var(--md-surface-container-highest); color: var(--danger); }
+.job-ctrl .material-icons-round { font-size: 14px; }
+
+/* ================ 右键菜单 ================ */
+.ctx-menu {
+  position: fixed; background: var(--md-surface-container-high);
+  border: 1px solid var(--md-outline-variant);
+  border-radius: 10px; box-shadow: var(--shadow-lg);
+  padding: 6px 0; min-width: 200px; z-index: 9999;
+  font-size: 12px;
+}
+.ctx-item {
+  padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+  cursor: pointer; color: var(--md-on-surface);
+  transition: background .08s;
+}
+.ctx-item:hover { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.ctx-item:hover .ctx-icon { color: var(--md-on-primary-container); }
+.ctx-item .ctx-icon {
+  font-size: 16px; color: var(--md-on-surface-variant);
+}
+.ctx-divider { height: 1px; background: var(--md-outline-variant); margin: 4px 0; }
+.ctx-title {
+  padding: 4px 14px 8px; font-size: 10px; color: var(--md-on-surface-variant);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ================ chmod 矩阵 ================ */
+.dialog-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.4); backdrop-filter: blur(2px);
+  display: grid; place-items: center; z-index: 10000;
+}
+.dialog {
+  background: var(--md-surface); border-radius: 16px;
+  width: 440px; padding: 22px; box-shadow: var(--shadow-lg);
+  border: 1px solid var(--md-outline-variant);
+}
+.dialog-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.dialog-sub { font-size: 11px; color: var(--md-on-surface-variant); margin-bottom: 16px; font-family: 'JetBrains Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chmod-grid {
+  display: grid; grid-template-columns: 64px repeat(3, 1fr); gap: 8px;
+}
+.chmod-grid .hdr { font-size: 11px; color: var(--md-on-surface-variant); text-align: center; padding-bottom: 4px; }
+.chmod-row-label {
+  display: flex; align-items: center; gap: 4px; font-size: 12px;
+}
+.chmod-row-label .bits {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--md-primary);
+}
+.chmod-btn {
+  height: 34px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-low);
+  color: var(--md-on-surface-variant);
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700;
+  transition: all .12s;
+}
+.chmod-btn.active {
+  background: var(--md-primary); color: var(--md-on-primary); border-color: var(--md-primary);
+}
+.chmod-btn:hover { border-color: var(--md-primary); }
+.dialog-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; }
+.dialog-footer .mode { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; color: var(--md-primary); }
+.dialog-footer .actions { display: flex; gap: 8px; }
+.btn {
+  height: 34px; padding: 0 16px; border-radius: 8px; cursor: pointer;
+  font-family: inherit; font-size: 12px; font-weight: 500;
+  transition: all .12s;
+}
+.btn.outline {
+  border: 1px solid var(--md-outline); background: transparent; color: var(--md-on-surface);
+}
+.btn.outline:hover { background: var(--md-surface-container-high); }
+.btn.primary {
+  border: 0; background: var(--md-primary); color: var(--md-on-primary);
+}
+.btn.primary:hover { filter: brightness(1.08); }
+
+/* ================ 全局设置 ================ */
+body { overflow: hidden; }
+
+/* demo controls */
+.demo-bar {
+  position: fixed; top: 8px; right: 8px; z-index: 99999;
+  display: flex; gap: 6px;
+}
+.demo-bar button {
+  height: 28px; padding: 0 10px; border-radius: 6px;
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container); color: var(--md-on-surface);
+  cursor: pointer; font-size: 11px; font-family: inherit;
+}
+.demo-bar button:hover { background: var(--md-primary-container); color: var(--md-on-primary-container); border-color: var(--md-primary); }
+</style>
+</head>
+<body>
+
+<!-- Demo controls -->
+<div class="demo-bar">
+  <button onclick="toggleTheme()">🌓 切换主题</button>
+  <button onclick="demoChmod()">🔧 演示 chmod</button>
+  <button onclick="demoCtx()">📄 右键菜单</button>
+  <button onclick="toggleTp()">📋 切换队列</button>
+</div>
+
+<!-- ================ SFTP 窗口主体 ================ -->
+<div class="window-frame" id="app">
+
+  <!-- 自定义标题栏 -->
+  <div class="titlebar">
+    <div class="titlebar-icon"><span class="material-icons-round">cloud</span></div>
+    <div class="titlebar-title">SFTP — my-server (ubuntu@192.168.1.100:22)</div>
+    <div class="titlebar-controls">
+      <button class="icon-btn" title="最小化"><span class="material-icons-round">remove</span></button>
+      <button class="icon-btn" title="最大化"><span class="material-icons-round">open_in_full</span></button>
+      <button class="icon-btn" title="关闭" onclick="confirmClose()">
+        <span class="material-icons-round">close</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 顶部工具栏 -->
+  <div class="toolbar">
+    <button class="tb-btn" title="新建连接"><span class="material-icons-round">add</span>新建</button>
+    <button class="tb-btn" title="刷新"><span class="material-icons-round">refresh</span>刷新</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn primary" onclick="simulateUpload()" title="上传选中文件"><span class="material-icons-round">upload</span>上传</button>
+    <button class="tb-btn" onclick="simulateDownload()" title="下载选中文件"><span class="material-icons-round">download</span>下载</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" title="新建目录"><span class="material-icons-round">create_new_folder</span>新建目录</button>
+    <button class="tb-btn" title="删除"><span class="material-icons-round">delete</span>删除</button>
+    <button class="tb-btn" title="重命名"><span class="material-icons-round">drive_file_rename_outline</span>重命名</button>
+    <button class="tb-btn" title="修改权限"><span class="material-icons-round">lock</span>权限</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" title="显示隐藏文件"><span class="material-icons-round">visibility_off</span></button>
+    <div class="tb-spacer"></div>
+    <div class="tb-connection">
+      <span class="status-dot"></span>
+      <span>ubuntu@192.168.1.100:22 已连接</span>
+    </div>
+  </div>
+
+  <!-- 主内容区 -->
+  <div class="main-area">
+    <div class="panels" id="panels">
+
+      <!-- ===== 本地 ===== -->
+      <div class="panel" id="localPanel">
+        <div class="panel-header">
+          <span class="material-icons-round">computer</span>
+          本地 (C:\Users\demo)
+        </div>
+        <div class="path-bar">
+          <button class="path-btn" title="返回"><span class="material-icons-round">arrow_back</span></button>
+          <button class="path-btn" title="前进"><span class="material-icons-round">arrow_forward</span></button>
+          <button class="path-btn" title="返回上一级"><span class="material-icons-round">arrow_upward</span></button>
+          <input class="path-input" id="localPath" value="C:\Users\demo\projects\chena-shell">
+          <button class="path-btn" title="刷新"><span class="material-icons-round">refresh</span></button>
+        </div>
+        <div class="file-list" id="localList">
+          <!-- 动态填充 -->
+        </div>
+      </div>
+
+      <!-- 垂直 splitter -->
+      <div class="splitter-v" id="vsplitter"></div>
+
+      <!-- ===== 远端 ===== -->
+      <div class="panel" id="remotePanel">
+        <div class="panel-header remote">
+          <span class="material-icons-round">cloud_queue</span>
+          远端 (ubuntu@192.168.1.100)
+        </div>
+        <div class="path-bar">
+          <button class="path-btn" title="返回"><span class="material-icons-round">arrow_back</span></button>
+          <button class="path-btn" title="前进"><span class="material-icons-round">arrow_forward</span></button>
+          <button class="path-btn" title="返回上一级"><span class="material-icons-round">arrow_upward</span></button>
+          <input class="path-input" id="remotePath" value="/home/ubuntu/app">
+          <button class="path-btn" title="刷新"><span class="material-icons-round">refresh</span></button>
+        </div>
+        <div class="file-list" id="remoteList">
+          <!-- 动态填充 -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ===== 底部传输队列 ===== -->
+    <div class="transfer-panel" id="transferPanel">
+      <div class="tp-header" onclick="toggleTp()">
+        <span class="material-icons-round">queue</span>
+        传输队列
+        <span class="count" id="jobCount">3</span>
+        <div class="spacer"></div>
+        <div class="actions">
+          <button class="tb-btn" onclick="event.stopPropagation(); pauseAll()" title="全部暂停"><span class="material-icons-round">pause</span></button>
+          <button class="tb-btn" onclick="event.stopPropagation(); cancelAll()" title="全部取消"><span class="material-icons-round">block</span></button>
+          <button class="tb-btn" onclick="event.stopPropagation(); clearDone()" title="清理已完成"><span class="material-icons-round">cleaning_services</span></button>
+          <span class="material-icons-round" id="tpChevron" style="font-size:18px;transition:transform .2s">expand_more</span>
+        </div>
+      </div>
+      <div class="tp-body" id="tpBody">
+        <!-- 动态填充 -->
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 右键菜单挂载点 -->
+<div id="ctxMount"></div>
+<!-- 对话框挂载点 -->
+<div id="dlgMount"></div>
+
+<script>
+/* ========= 深浅主题 ========= */
+let dark = true;
+function toggleTheme() {
+  dark = !dark;
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+}
+document.documentElement.dataset.theme = 'dark';
+
+/* ========= 模拟数据 ========= */
+const localData = [
+  { name: 'src', isDir: true, size: 0 },
+  { name: 'dist', isDir: true, size: 0 },
+  { name: 'node_modules', isDir: true, size: 0 },
+  { name: 'Cargo.toml', isDir: false, size: 1240 },
+  { name: 'package.json', isDir: false, size: 892 },
+  { name: 'README.md', isDir: false, size: 2480 },
+  { name: 'tsconfig.json', isDir: false, size: 560 },
+  { name: 'vite.config.ts', isDir: false, size: 420 },
+  { name: 'yarn.lock', isDir: false, size: 184320 },
+];
+const remoteData = [
+  { name: 'logs', isDir: true, size: 0, perms: 'drwxr-xr-x' },
+  { name: 'data', isDir: true, size: 0, perms: 'drwxrwxr-x' },
+  { name: '.git', isDir: true, size: 0, perms: 'drwxr-xr-x' },
+  { name: 'main.py', isDir: false, size: 87240, perms: '-rw-r--r--' },
+  { name: 'config.yaml', isDir: false, size: 4318, perms: '-rw-r--r--' },
+  { name: 'deploy.sh', isDir: false, size: 2140, perms: '-rwxr-xr-x' },
+  { name: '.bashrc', isDir: false, size: 3120, perms: '-rw-r--r--' },
+  { name: 'app.service', isDir: false, size: 640, perms: '-rw-r--r--' },
+  { name: 'backup-20261117.tar.gz', isDir: false, size: 104857600, perms: '-rw-rw-r--' },
+];
+
+function fmtSize(n) {
+  if (!n) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  if (n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+let selectedLocal = null, selectedRemote = null;
+
+/* ========= 渲染文件列表 ========= */
+function renderList(listId, data, isRemote) {
+  const el = document.getElementById(listId);
+  const rows = data.map((item, i) => {
+    const selected = (isRemote ? selectedRemote : selectedLocal) === item.name;
+    const iconClass = item.isDir ? 'folder' :
+                      (item.name.endsWith('.sh') || item.name.endsWith('.exe') || item.perms?.includes('x')) ? 'exec' :
+                      (item.name.startsWith('.') && !item.isDir) ? 'link' : '';
+    const onCtx = isRemote
+      ? `oncontextmenu="showCtx(event,'remote',${i})"`
+      : `oncontextmenu="showCtx(event,'local',${i})"`;
+    const onClick = isRemote
+      ? `onclick="selectRow('remote','${item.name}')"`
+      : `onclick="selectRow('local','${item.name}')"`;
+    return `<div class="file-row ${selected?'selected':''}" ${onClick} ondoubleclick="enterDir('${isRemote?'remote':'local'}',${i})" ${onCtx} ondragenter="this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondragover="event.preventDefault()">
+      <div class="file-icon ${iconClass}"><span class="material-icons-round">${item.isDir?'folder':'description'}</span></div>
+      <div class="file-name">${item.name}</div>
+      <div class="file-size">${fmtSize(item.size)}</div>
+      <div class="file-perms">${isRemote ? (item.perms||'') : '—'}</div>
+    </div>`;
+  }).join('');
+
+  const header = `<div class="file-header">
+    <div></div><div>名称</div><div class="col-size">大小</div><div class="col-perms">权限</div>
+  </div>`;
+  el.innerHTML = header + rows;
+}
+
+function selectRow(side, name) {
+  if (side === 'remote') selectedRemote = name; else selectedLocal = name;
+  renderList('localList', localData, false);
+  renderList('remoteList', remoteData, true);
+}
+function enterDir(side, idx) {
+  const item = (side==='remote'?remoteData:localData)[idx];
+  if (item.isDir) {
+    // demo: just show a toast
+    toast(`进入目录: ${item.name}`);
+  }
+}
+
+/* ========= 传输队列 ========= */
+let jobs = [
+  { id:1, dir:'download', name:'backup-20261117.tar.gz', from:'/home/ubuntu', to:'C:\\downloads', pct:68, state:'running' },
+  { id:2, dir:'upload', name:'index.html', from:'C:\\projects\\web', to:'/var/www/html', pct:100, state:'done' },
+  { id:3, dir:'upload', name:'styles.css', from:'C:\\projects\\web', to:'/var/www/html', pct:42, state:'running' },
+];
+
+function renderJobs() {
+  const el = document.getElementById('tpBody');
+  const rows = jobs.map(j => `
+    <div class="job-row ${j.dir} ${j.state==='done'?'done':''} ${j.state==='error'?'error':''}">
+      <div class="job-arrow">${j.dir==='upload'?'⬆':'⬇'}</div>
+      <div>
+        <div class="job-name">${j.name}</div>
+        <div class="job-path">${j.from} → ${j.to}</div>
+      </div>
+      <div>
+        <div class="progress-wrap"><div class="progress-bar" style="width:${j.pct}%"></div></div>
+      </div>
+      <div class="job-pct">${j.pct}%</div>
+      <div class="job-ctrl">
+        ${j.state==='running' ? `<button onclick="pauseJob(${j.id})" title="暂停"><span class="material-icons-round">pause</span></button>`
+          : j.state==='done' ? `<span class="material-icons-round" style="color:var(--success);font-size:16px">check_circle</span>`
+          : `<button onclick="cancelJob(${j.id})" title="取消"><span class="material-icons-round">close</span></button>`}
+      </div>
+    </div>`).join('');
+  el.innerHTML = rows;
+  document.getElementById('jobCount').textContent = jobs.filter(j=>j.state==='running').length;
+}
+
+/* 进度条 demo：每秒涨一点 */
+setInterval(() => {
+  jobs.forEach(j => {
+    if (j.state === 'running' && j.pct < 100) {
+      j.pct = Math.min(100, j.pct + Math.random() * 3);
+      if (j.pct >= 100) { j.state = 'done'; toast(`✅ ${j.name} ${j.dir==='upload'?'上传':'下载'}完成`); }
+    }
+  });
+  renderJobs();
+}, 1000);
+
+function simulateUpload() {
+  const name = selectedLocal || localData.find(d=>!d.isDir)?.name;
+  if (!name) return toast('请先选一个本地文件');
+  jobs.push({ id:Date.now(), dir:'upload', name, from:'C:\\...', to:'/home/ubuntu', pct:0, state:'running' });
+  renderJobs();
+  toast(`⏫ 开始上传 ${name}`);
+}
+function simulateDownload() {
+  const name = selectedRemote || remoteData.find(d=>!d.isDir)?.name;
+  if (!name) return toast('请先选一个远端文件');
+  jobs.push({ id:Date.now(), dir:'download', name, from:'/home/ubuntu', to:'C:\\downloads', pct:0, state:'running' });
+  renderJobs();
+  toast(`⏬ 开始下载 ${name}`);
+}
+function pauseJob(id) { const j = jobs.find(j=>j.id===id); if(j) j.state = 'paused'; renderJobs(); toast(`⏸ 已暂停 ${j.name}`); }
+function cancelJob(id) { const j = jobs.find(j=>j.id===id); jobs = jobs.filter(j=>j.id!==id); renderJobs(); toast(`✕ 已取消`); }
+function pauseAll() { jobs.forEach(j=>{if(j.state==='running') j.state='paused';}); renderJobs(); }
+function cancelAll() { jobs = []; renderJobs(); toast('全部已取消'); }
+function clearDone() { jobs = jobs.filter(j=>j.state==='running'); renderJobs(); }
+
+/* ========= 队列折叠 ========= */
+let tpOpen = true;
+function toggleTp() {
+  tpOpen = !tpOpen;
+  const body = document.getElementById('tpBody');
+  const panel = document.getElementById('transferPanel');
+  const chev = document.getElementById('tpChevron');
+  body.style.height = tpOpen ? '160px' : '0';
+  body.style.overflow = tpOpen ? 'auto' : 'hidden';
+  chev.style.transform = tpOpen ? 'rotate(0)' : 'rotate(-90deg)';
+}
+
+/* ========= 右键菜单 ========= */
+let ctxCloseFn = null;
+function showCtx(e, side, idx) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (ctxCloseFn) ctxCloseFn();
+
+  const item = (side==='remote'?remoteData:localData)[idx];
+  if (side === 'remote') selectRow('remote', item.name); else selectRow('local', item.name);
+
+  const mount = document.getElementById('ctxMount');
+  const menu = document.createElement('div');
+  menu.className = 'ctx-menu';
+
+  // 边界检测
+  let x = e.clientX, y = e.clientY;
+  const W = 220, H = side==='remote'?340:260;
+  if (x + W > window.innerWidth) x = window.innerWidth - W - 4;
+  if (y + H > window.innerHeight) y = window.innerHeight - H - 4;
+  menu.style.left = Math.max(4, x) + 'px';
+  menu.style.top = Math.max(4, y) + 'px';
+
+  const close = () => { menu.remove(); document.removeEventListener('click', close, true); document.removeEventListener('contextmenu', close, true); };
+  ctxCloseFn = close;
+  document.addEventListener('click', close, true);
+  document.addEventListener('contextmenu', close, true);
+
+  const items = [];
+  items.push(`<div class="ctx-title">${item.name}</div>`);
+
+  if (side === 'remote') {
+    if (!item.isDir) items.push({icon:'download', label:'下载到本地', action: () => { simulateDownload(); }});
+    items.push({icon:'edit', label:'编辑文件...', action: () => { toast('打开内置编辑器'); }});
+    items.push({icon:'terminal', label:'在终端打开', action: () => { toast('cd ' + item.name); }});
+    items.push({divider:true});
+    items.push({icon:'content_copy', label:'复制完整路径', action: () => { navigator.clipboard?.writeText('/home/ubuntu/' + item.name); toast('路径已复制'); }});
+    items.push({icon:'info', label:'查看详情', action: () => { toast(`${item.name}\n权限: ${item.perms}\n大小: ${fmtSize(item.size)}`); }});
+    items.push({divider:true});
+    items.push({icon:'lock', label:'修改权限 (chmod)...', action: () => { close(); demoChmod(item.perms); }});
+    items.push({icon:'drive_file_rename_outline', label:'重命名...', action: () => { toast('重命名: ' + item.name); }});
+    items.push({icon:'delete', label:'删除', danger:true, action: () => { toast('删除 ' + item.name); }});
+  } else {
+    if (!item.isDir) items.push({icon:'upload', label:'上传到远端', action: () => { simulateUpload(); }});
+    items.push({icon:'open_in_new', label:'在资源管理器中打开', action: () => { toast('explorer ' + item.name); }});
+    items.push({icon:'terminal', label:'在此处打开终端', action: () => { toast('cd ' + item.name); }});
+    items.push({divider:true});
+    items.push({icon:'content_copy', label:'复制完整路径', action: () => { toast('路径已复制'); }});
+    items.push({icon:'info', label:'属性', action: () => { toast(`${item.name}\n大小: ${fmtSize(item.size)}`); }});
+    items.push({divider:true});
+    items.push({icon:'drive_file_rename_outline', label:'重命名...', action: () => { toast('重命名: ' + item.name); }});
+    items.push({icon:'delete', label:'删除', danger:true, action: () => { toast('删除 ' + item.name); }});
+  }
+
+  items.forEach(it => {
+    if (it.divider) {
+      menu.innerHTML += `<div class="ctx-divider"></div>`;
+    } else {
+      const el = document.createElement('div');
+      el.className = 'ctx-item';
+      el.innerHTML = `<span class="material-icons-round ctx-icon">${it.icon}</span>${it.label}`;
+      el.onclick = () => { close(); it.action?.(); };
+      menu.appendChild(el);
+    }
+  });
+
+  mount.appendChild(menu);
+}
+function demoCtx() { showCtx({clientX: 400, clientY: 300, preventDefault:()=>{}, stopPropagation:()=>{}}, 'remote', 2); }
+
+/* ========= chmod 矩阵对话框 ========= */
+let chmodState = { owner:{r:true,w:true,x:true}, group:{r:true,w:false,x:true}, other:{r:true,w:false,x:true} };
+function demoChmod(perms) {
+  if (perms) {
+    const str = perms.replace(/^-/, '').padEnd(9, '-').slice(0,9);
+    chmodState = {
+      owner: {r:str[0]==='r', w:str[1]==='w', x:str[2]==='x'},
+      group: {r:str[3]==='r', w:str[4]==='w', x:str[5]==='x'},
+      other: {r:str[6]==='r', w:str[7]==='w', x:str[8]==='x'},
+    };
+  }
+
+  const mount = document.getElementById('dlgMount');
+  const overlay = document.createElement('div');
+  overlay.className = 'dialog-overlay';
+
+  const close = () => overlay.remove();
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+  function bits(o) { return (o.r?4:0)+(o.w?2:0)+(o.x?1:0); }
+  function mode() { return bits(chmodState.owner)+''+bits(chmodState.group)+''+bits(chmodState.other); }
+
+  let content = () => `
+    <div class="dialog">
+      <div class="dialog-title">🔧 修改权限</div>
+      <div class="dialog-sub">backup-20261117.tar.gz (${perms||'-rw-r--r--'})</div>
+      <div class="chmod-grid">
+        <div></div>
+        <div class="hdr">读 (r)</div>
+        <div class="hdr">写 (w)</div>
+        <div class="hdr">执行 (x)</div>
+        ${['owner','group','other'].map(k => `
+          <div class="chmod-row-label">${k==='owner'?'拥有者':k==='group'?'组':'其他'} <span class="bits">${bits(chmodState[k])}</span></div>
+          ${['r','w','x'].map(b => `
+            <button class="chmod-btn ${chmodState[k][b]?'active':''}" onclick="toggleChmod('${k}','${b}')">
+              ${chmodState[k][b]?b.toUpperCase():'—'}
+            </button>
+          `).join('')}
+        `).join('')}
+      </div>
+      <div class="dialog-footer">
+        <div>当前权限: <span class="mode">${mode()}</span></div>
+        <div class="actions">
+          <button class="btn outline" onclick="closeChmod()">取消</button>
+          <button class="btn primary" onclick="applyChmod()">应用 (${mode()})</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  window.toggleChmod = (k,b) => {
+    chmodState[k][b] = !chmodState[k][b];
+    overlay.innerHTML = content();
+    overlay.querySelector('.dialog-overlay')?.replaceWith(overlay);
+  };
+  window.closeChmod = close;
+  window.applyChmod = () => { close(); toast(`✅ chmod ${mode()} 已应用`); };
+
+  overlay.innerHTML = content();
+  mount.appendChild(overlay);
+}
+
+/* ========= splitter 拖拽 ========= */
+const vsplitter = document.getElementById('vsplitter');
+let dragState = null;
+vsplitter.addEventListener('mousedown', (e) => {
+  dragState = { startX: e.clientX, panels: document.getElementById('panels') };
+  vsplitter.classList.add('active');
+  document.body.style.cursor = 'col-resize';
+  document.body.style.userSelect = 'none';
+});
+document.addEventListener('mousemove', (e) => {
+  if (!dragState) return;
+  const total = dragState.panels.getBoundingClientRect().width;
+  const ratio = e.clientX / total;
+  const clamped = Math.max(0.15, Math.min(0.85, ratio));
+  dragState.panels.style.gridTemplateColumns = `${clamped}fr 4px ${(1-clamped).toFixed(4)}fr`;
+});
+document.addEventListener('mouseup', () => {
+  if (dragState) {
+    vsplitter.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    dragState = null;
+  }
+});
+
+/* ========= 关闭确认 ========= */
+function confirmClose() {
+  if (jobs.some(j => j.state === 'running')) {
+    const running = jobs.filter(j=>j.state==='running').length;
+    toast(`⚠️ 有 ${running} 个传输进行中，关闭将取消`);
+  } else {
+    toast('窗口已关闭（demo）');
+  }
+}
+
+/* ========= Toast ========= */
+function toast(msg) {
+  const t = document.createElement('div');
+  t.textContent = msg;
+  Object.assign(t.style, {
+    position:'fixed', bottom:'20px', left:'50%', transform:'translateX(-50%)',
+    background:'var(--md-on-surface)', color:'var(--md-surface)',
+    padding:'8px 16px', borderRadius:'8px', fontSize:'12px',
+    zIndex:99999, boxShadow:'var(--shadow-md)',
+    maxWidth:'400px', whiteSpace:'nowrap', textOverflow:'ellipsis', overflow:'hidden'
+  });
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.transition='opacity .3s'; t.style.opacity='0'; setTimeout(()=>t.remove(),300); }, 2000);
+}
+
+/* ========= 初始化 ========= */
+renderList('localList', localData, false);
+renderList('remoteList', remoteData, true);
+renderJobs();
+
+// 点击选中
+document.getElementById('localList').addEventListener('click', (e) => {
+  const row = e.target.closest('.file-row'); if (!row) return;
+  const name = row.querySelector('.file-name').textContent;
+  selectRow('local', name);
+});
+document.getElementById('remoteList').addEventListener('click', (e) => {
+  const row = e.target.closest('.file-row'); if (!row) return;
+  const name = row.querySelector('.file-name').textContent;
+  selectRow('remote', name);
+});
+
+// 阻止文档级右键菜单
+document.addEventListener('contextmenu', (e) => {
+  if (!e.target.closest('.file-list')) {
+    // 空白区域右键 — 远端的话也出菜单
+  }
+});
+</script>
+</body>
+</html>

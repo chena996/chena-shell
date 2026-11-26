@@ -1,0 +1,77 @@
+[package]
+name = "chena-shell"
+version = "1.0.0"
+description = "Chena-Shell — AI-friendly SSH terminal"
+authors = ["Chena"]
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "chena_shell_lib"
+# 只输出 staticlib + rlib — 代码嵌入 exe，不生成独立 dll
+crate-type = ["staticlib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+base64 = "0.22"
+
+# SSH — russh（纯 Rust，支持 curve25519 / ed25519 等现代算法）
+russh = { version = "0.53", default-features = false, features = ["flate2", "ring"] }
+russh-sftp = "2.4.0"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# MCP Streamable HTTP transport
+axum = "0.8"
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+bytes = "1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utils
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+dirs = "5"
+anyhow = "1"
+thiserror = "1"
+parking_lot = "0.12"
+dashmap = "6"
+
+# Encryption — session config at rest
+sha2 = "0.10"
+aes-gcm = "0.10"
+aead = "0.5"
+rand = "0.8"
+
+[patch.crates-io]
+# russh 0.53 依赖的旧 transport 未按 Agent 数据包分帧，且共享内存所有者不兼容 Pageant。
+pageant = { path = "../vendor/pageant" }
+# 增加 OpenSSH posix-rename 扩展，确认覆盖时仍需原子替换目标。
+russh-sftp = { path = "../vendor/russh-sftp" }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+mcp-harness = []
+
+[profile.release]
+codegen-units = 1
+lto = true
+panic = "abort"
+strip = true
+opt-level = "z"
