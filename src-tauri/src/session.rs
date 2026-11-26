@@ -141,7 +141,7 @@ impl client::Handler for ClientHandler {
         _originator_port: u32,
         _session: &mut russh::client::Session,
     ) -> Result<(), Self::Error> {
-        match crate::forward::remote_target_lookup(connected_port) {
+        match crate::forward::remote_target_lookup(&self.session_id, connected_port) {
             Some((host, port)) => {
                 self.log(
                     "INFO",
@@ -1910,6 +1910,8 @@ pub struct SessionHandle {
     generation: AtomicU64,
     latency_ms: Mutex<Option<LatencySample>>,
     worker_running: AtomicBool,
+    /// 建连尝试的单调编号：超时或新请求到来后，旧线程不再改写共享状态。
+    connect_epoch: AtomicU64,
     close_requested: AtomicBool,
     pub attached: AtomicBool,
     pub attach_token: Mutex<Option<String>>,
@@ -1962,6 +1964,7 @@ impl SessionHandle {
             generation: AtomicU64::new(0),
             latency_ms: Mutex::new(None),
             worker_running: AtomicBool::new(false),
+            connect_epoch: AtomicU64::new(0),
             close_requested: AtomicBool::new(false),
             attached: AtomicBool::new(false),
             attach_token: Mutex::new(None),
@@ -2403,6 +2406,11 @@ impl SessionHandle {
             && self.connected.load(Ordering::Acquire)
     }
 
+    /// 建连线程是否仍属于最新一次连接尝试。
+    fn connect_is_current(&self, epoch: u64) -> bool {
+        self.connect_epoch.load(Ordering::Acquire) == epoch
+    }
+
     fn record_latency(&self, generation: u64, millis: u64) {
         if !self.connection_is_current(generation) {
             return;
@@ -2416,9 +2424,10 @@ impl SessionHandle {
             return Ok(());
         }
         if self.worker_running.swap(true, Ordering::AcqRel) {
-            return Ok(());
+            return Err("会话正在连接中，请稍后再试".into());
         }
         self.close_requested.store(false, Ordering::Release);
+        let connect_epoch = self.connect_epoch.fetch_add(1, Ordering::AcqRel) + 1;
 
         let cfg = self.config_snapshot();
         let session_id = cfg.id.clone();
@@ -2458,8 +2467,10 @@ impl SessionHandle {
                 Err(e) => {
                     log_info(&cfg, &format!("ERROR 初始化运行时失败: {e}"));
                     crate::logging::end_session_log(&cfg.id, "初始化运行时失败");
-                    *me.io_tx.lock() = None;
-                    me.worker_running.store(false, Ordering::Release);
+                    if me.connect_is_current(connect_epoch) {
+                        *me.io_tx.lock() = None;
+                        me.worker_running.store(false, Ordering::Release);
+                    }
                     let _ = res_tx.send(Err(format!("初始化运行时失败: {e}")));
                     return;
                 }
@@ -2470,12 +2481,19 @@ impl SessionHandle {
                     Ok(connection) => connection,
                     Err(error) => {
                         crate::logging::end_session_log(&cfg.id, "连接失败");
-                        *me.io_tx.lock() = None;
-                        me.worker_running.store(false, Ordering::Release);
+                        if me.connect_is_current(connect_epoch) {
+                            *me.io_tx.lock() = None;
+                            me.worker_running.store(false, Ordering::Release);
+                        }
                         let _ = res_tx.send(Err(error));
                         return;
                     }
                 };
+                if !me.connect_is_current(connect_epoch) {
+                    // 建连期间已超时或被新的连接请求取代：丢弃结果，保持状态与真实连接一致。
+                    crate::logging::end_session_log(&cfg.id, "连接已取消");
+                    return;
+                }
                 let mut res_tx = Some(res_tx);
                 let mut rx = rx;
                 let end_reason;
@@ -2700,8 +2718,10 @@ impl SessionHandle {
 
                 log_info(&cfg, &format!("连接结束：{end_reason}"));
                 crate::logging::end_session_log(&cfg.id, &end_reason);
-                *me.io_tx.lock() = None;
-                me.worker_running.store(false, Ordering::Release);
+                if me.connect_is_current(connect_epoch) {
+                    *me.io_tx.lock() = None;
+                    me.worker_running.store(false, Ordering::Release);
+                }
                 let generation = me.generation.load(Ordering::Acquire);
                 emit_for_generation(
                     &me,
@@ -2724,7 +2744,11 @@ impl SessionHandle {
                 Err(e)
             }
             Err(_) => {
-                *self.io_tx.lock() = None;
+                // 建连超时：取消仍在进行的尝试并复位状态，避免下次重连被静默忽略。
+                self.close_requested.store(true, Ordering::Release);
+                self.connect_epoch.fetch_add(1, Ordering::AcqRel);
+                let _ = self.io_tx.lock().take();
+                self.worker_running.store(false, Ordering::Release);
                 crate::logging::end_session_log(&session_id, "连接超时");
                 Err("连接超时".into())
             }

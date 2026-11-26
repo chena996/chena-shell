@@ -716,7 +716,7 @@ export default function SettingsDialog({
                   <div>
                     <strong>标准 MCP 客户端接入</strong>
                     <p>HTTP：POST <code>{localMcpStatus?.endpoint || 'http://127.0.0.1:8767/mcp'}</code>，请求头使用 <code>Authorization: Bearer &lt;凭证&gt;</code>。</p>
-                    <p>stdio：运行 <code>Chena-Shell_V1.0.0.12.exe --mcp-stdio</code>，并设置环境变量 <code>CHENA_MCP_TOKEN</code>；非默认端口时同时设置 <code>CHENA_MCP_URL</code>。</p>
+                    <p>stdio：运行 <code>Chena-Shell_V1.0.0.13.exe --mcp-stdio</code>，并设置环境变量 <code>CHENA_MCP_TOKEN</code>；非默认端口时同时设置 <code>CHENA_MCP_URL</code>。</p>
                   </div>
                 </div>
 

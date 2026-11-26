@@ -408,7 +408,7 @@ async fn session_create(
         .sessions
         .insert(id.clone(), handle.clone());
     if let Err(error) = crate::commands::persist(state) {
-        state.inner.write().sessions.remove(&id);
+        let _ = state.inner.read().sessions.remove(&id);
         return json!({"error": format!("会话保存失败: {error}")});
     }
 
@@ -507,7 +507,7 @@ fn session_disconnect(args: Value, state: &AppState, client: &ClientContext) -> 
     handle.force_detach(state);
     handle.close();
     approval::cancel_session(state, &sid, "会话已断开，未决审批已取消");
-    state.inner.write().monitor_samples.remove(&sid);
+    let _ = state.inner.read().monitor_samples.remove(&sid);
     json!({"ok": true, "session_id": sid, "connected": false})
 }
 
@@ -1126,13 +1126,23 @@ async fn session_exec(args: Value, state: &AppState, client: &ClientContext) -> 
     }
 
     let mut command = supplied_command.to_string();
-    let mut approved_confirmation = None;
+    let mut approved_confirmation_id: Option<String> = None;
     if let Some(confirmation_id) = args.get("confirmation_id").and_then(Value::as_str) {
         let Some(existing) = approval::get(state, confirmation_id) else {
             return json!({"ok": false, "error": "confirmation not found", "confirmation_id": confirmation_id});
         };
-        if existing.status == ConfirmationStatus::Pending {
-            return pending_response(state, confirmation_id);
+        match existing.status {
+            ConfirmationStatus::Pending => return pending_response(state, confirmation_id),
+            ConfirmationStatus::Approved => {}
+            _ => {
+                return json!({
+                    "ok": false,
+                    "error": "CONFIRMATION_NOT_APPROVED",
+                    "confirmation_id": confirmation_id,
+                    "status": existing.status,
+                    "reason": existing.resolution,
+                })
+            }
         }
         if let Some(original) = existing.command.as_deref() {
             if !supplied_command.is_empty() && supplied_command != original {
@@ -1140,21 +1150,8 @@ async fn session_exec(args: Value, state: &AppState, client: &ClientContext) -> 
             }
             command = original.into();
         }
-        match approval::consume_approved(
-            state,
-            confirmation_id,
-            ConfirmationKind::Exec,
-            &sid,
-            &client.client_id,
-        ) {
-            Ok(confirmation) => approved_confirmation = Some(confirmation),
-            Err(error) if error == "WAIT_CONFIRM" => {
-                return pending_response(state, confirmation_id)
-            }
-            Err(error) => {
-                return json!({"ok": false, "error": error, "confirmation_id": confirmation_id})
-            }
-        }
+        // 审批单在真正执行前才消费：Block、参数错误或执行失败都不会白白消耗。
+        approved_confirmation_id = Some(confirmation_id.to_string());
     }
     if command.trim().is_empty() {
         return json!({"error": "missing command"});
@@ -1183,12 +1180,17 @@ async fn session_exec(args: Value, state: &AppState, client: &ClientContext) -> 
             );
             json!({"ok": false, "error": "BLOCKED", "rule": rule})
         }
-        crate::security::CheckResult::WaitConfirm { rule } if approved_confirmation.is_none() => {
-            // 任务级授权：任务有效期内，白名单只读命令免逐条审批（写/高危/root 仍走确认）。
+        crate::security::CheckResult::WaitConfirm { rule }
+            if approved_confirmation_id.is_none() =>
+        {
+            // 任务级授权：任务有效期内，内置白名单只读命令免逐条审批（写/高危/root 仍走确认）。
+            // 只认内置条目：用户自定义的宽条目无法借任务期绕过逐条审批。
             let task_active = handle
                 .attach_task_snapshot()
                 .is_some_and(|task| task.expires_at > chrono::Utc::now());
-            if task_active && readonly_command_allowed(&command, &settings.ai_diag_allowlist) {
+            let login_user = handle.config_snapshot().username;
+            let task_allowlist = task_allowlist_for_login(&settings.ai_diag_allowlist, &login_user);
+            if task_active && readonly_command_allowed(&command, &task_allowlist) {
                 state.log_ai_event_detailed(
                     &sid,
                     AIEventKind::Confirmed {
@@ -1237,6 +1239,24 @@ async fn session_exec(args: Value, state: &AppState, client: &ClientContext) -> 
             result
         }
         crate::security::CheckResult::Allow | crate::security::CheckResult::WaitConfirm { .. } => {
+            let mut approved_confirmation = None;
+            if let Some(confirmation_id) = approved_confirmation_id.as_deref() {
+                match approval::consume_approved(
+                    state,
+                    confirmation_id,
+                    ConfirmationKind::Exec,
+                    &sid,
+                    &client.client_id,
+                ) {
+                    Ok(value) => approved_confirmation = Some(value),
+                    Err(error) if error == "WAIT_CONFIRM" => {
+                        return pending_response(state, confirmation_id)
+                    }
+                    Err(error) => {
+                        return json!({"ok": false, "error": error, "confirmation_id": confirmation_id})
+                    }
+                }
+            }
             if let Some(confirmation) = approved_confirmation {
                 state.log_ai_event_detailed(
                     &sid,
@@ -1252,7 +1272,14 @@ async fn session_exec(args: Value, state: &AppState, client: &ClientContext) -> 
                     None,
                 );
             }
-            execute_allowed(handle, state, client, &sid, command, timeout_ms, "").await
+            let result =
+                execute_allowed(handle, state, client, &sid, command, timeout_ms, "").await;
+            if result.get("ok").and_then(Value::as_bool) != Some(true) {
+                if let Some(confirmation_id) = approved_confirmation_id.as_deref() {
+                    approval::revert_to_approved(state, confirmation_id);
+                }
+            }
+            result
         }
     }
 }
@@ -1286,7 +1313,7 @@ async fn session_exec_root(
     }
 
     let mut command = supplied_command.to_string();
-    let mut approved_confirmation = None;
+    let mut approved_confirmation_id: Option<String> = None;
     if let Some(confirmation_id) = args.get("confirmation_id").and_then(Value::as_str) {
         let Some(existing) = approval::get(state, confirmation_id) else {
             return json!({"ok": false, "error": "confirmation not found", "confirmation_id": confirmation_id});
@@ -1294,8 +1321,18 @@ async fn session_exec_root(
         if existing.run_as.as_deref() != Some("root") {
             return json!({"ok": false, "error": "confirmation does not match run_as=root", "confirmation_id": confirmation_id});
         }
-        if existing.status == ConfirmationStatus::Pending {
-            return pending_response(state, confirmation_id);
+        match existing.status {
+            ConfirmationStatus::Pending => return pending_response(state, confirmation_id),
+            ConfirmationStatus::Approved => {}
+            _ => {
+                return json!({
+                    "ok": false,
+                    "error": "CONFIRMATION_NOT_APPROVED",
+                    "confirmation_id": confirmation_id,
+                    "status": existing.status,
+                    "reason": existing.resolution,
+                })
+            }
         }
         if let Some(original) = existing.command.as_deref() {
             if !supplied_command.is_empty() && supplied_command != original {
@@ -1303,21 +1340,7 @@ async fn session_exec_root(
             }
             command = original.to_string();
         }
-        match approval::consume_approved(
-            state,
-            confirmation_id,
-            ConfirmationKind::Exec,
-            sid,
-            &client.client_id,
-        ) {
-            Ok(confirmation) => approved_confirmation = Some(confirmation),
-            Err(error) if error == "WAIT_CONFIRM" => {
-                return pending_response(state, confirmation_id)
-            }
-            Err(error) => {
-                return json!({"ok": false, "error": error, "confirmation_id": confirmation_id})
-            }
-        }
+        approved_confirmation_id = Some(confirmation_id.to_string());
     }
     if command.trim().is_empty() {
         return json!({"error": "missing command"});
@@ -1346,7 +1369,7 @@ async fn session_exec_root(
             return json!({"ok": false, "error": "BLOCKED", "rule": rule});
         }
         crate::security::CheckResult::WaitConfirm { rule }
-            if approved_confirmation.is_none() && settings.sudo_require_confirm =>
+            if approved_confirmation_id.is_none() && settings.sudo_require_confirm =>
         {
             let confirmation = match approval::request(
                 state,
@@ -1387,6 +1410,18 @@ async fn session_exec_root(
         Ok(value) => value,
         Err(value) => return value,
     };
+    // 走到这里才会真正下发命令：此时才消费审批单，密码获取失败仍可复用审批。
+    if let Some(confirmation_id) = approved_confirmation_id.as_deref() {
+        if let Err(error) = approval::consume_approved(
+            state,
+            confirmation_id,
+            ConfirmationKind::Exec,
+            sid,
+            &client.client_id,
+        ) {
+            return json!({"ok": false, "error": error, "confirmation_id": confirmation_id});
+        }
+    }
     let password_for_cache = password.clone();
     let config = handle.config_snapshot();
     handle.sudo_consume_quota();
@@ -1407,7 +1442,7 @@ async fn session_exec_root(
     .await;
     let duration_ms = started.elapsed().as_millis() as u64;
 
-    match result {
+    let response = match result {
         Ok(Ok((code, stdout, stderr))) => {
             handle.sudo_clear_failures();
             cache_sudo_password(
@@ -1433,25 +1468,26 @@ async fn session_exec_root(
                 Some(started_at),
             );
             if timed_out {
-                return json!({
+                json!({
                     "ok": false, "error": "TIMEOUT", "timed_out": true,
                     "run_as": "root", "sudo_used": password_for_cache.is_some(),
                     "cwd": cwd, "command": command,
                     "exit_code": code, "stdout": stdout, "stderr": stderr,
                     "duration_ms": duration_ms,
-                });
+                })
+            } else {
+                json!({
+                    "ok": true,
+                    "run_as": "root",
+                    "sudo_used": password_for_cache.is_some(),
+                    "cwd": cwd,
+                    "command": command,
+                    "exit_code": code,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "duration_ms": duration_ms,
+                })
             }
-            json!({
-                "ok": true,
-                "run_as": "root",
-                "sudo_used": password_for_cache.is_some(),
-                "cwd": cwd,
-                "command": command,
-                "exit_code": code,
-                "stdout": stdout,
-                "stderr": stderr,
-                "duration_ms": duration_ms,
-            })
         }
         Ok(Err(kind)) => {
             // 提权认证类错误：按类型返回并维护失败锁定。
@@ -1491,7 +1527,14 @@ async fn session_exec_root(
             response
         }
         Err(error) => json!({"ok": false, "error": format!("命令执行线程异常: {error}")}),
+    };
+    if response.get("ok").and_then(Value::as_bool) != Some(true) {
+        // 执行失败/超时：把审批单回滚为 Approved，允许直接重试而不必重新审批。
+        if let Some(confirmation_id) = approved_confirmation_id.as_deref() {
+            approval::revert_to_approved(state, confirmation_id);
+        }
     }
+    response
 }
 
 /// 解析本次 root 执行使用的 sudo 密码。返回 None 表示走免密 `sudo -n`。
@@ -1770,12 +1813,22 @@ fn diag_allowlist_for_login(allowlist: &[String], login_user: &str) -> Vec<Strin
     if login_user != "root" {
         return allowlist.to_vec();
     }
+    builtin_only_allowlist(allowlist)
+}
+
+/// 只保留内置只读条目：用户自定义条目不参与任何免审批放行。
+fn builtin_only_allowlist(allowlist: &[String]) -> Vec<String> {
     let builtin = crate::state::default_diag_allowlist();
     allowlist
         .iter()
         .filter(|entry| builtin.iter().any(|item| item == entry.trim()))
         .cloned()
         .collect()
+}
+
+/// 任务级自动放行只认内置只读条目，并沿用 root 登录收敛规则。
+fn task_allowlist_for_login(allowlist: &[String], login_user: &str) -> Vec<String> {
+    builtin_only_allowlist(&diag_allowlist_for_login(allowlist, login_user))
 }
 
 /// 判断命令是否完全落在只读白名单内。
@@ -3322,6 +3375,24 @@ mod tests {
         assert!(!restricted.iter().any(|entry| entry == "ip"));
         assert!(!restricted.iter().any(|entry| entry == "mount"));
         assert_eq!(diag_allowlist_for_login(&custom, "deploy"), custom);
+    }
+
+    #[test]
+    fn task_allowlist_only_keeps_builtin_entries() {
+        let custom = vec![
+            "ls".to_string(),
+            "git status".to_string(),
+            "make build".to_string(),
+        ];
+        // 普通用户登录时，任务级自动放行也只认内置条目。
+        let task = task_allowlist_for_login(&custom, "deploy");
+        assert!(task.iter().any(|entry| entry == "ls"));
+        assert!(!task.iter().any(|entry| entry == "git status"));
+        assert!(!task.iter().any(|entry| entry == "make build"));
+        // root 登录同样只保留内置条目，且与普通登录结果一致。
+        assert_eq!(task_allowlist_for_login(&custom, "root"), task);
+        assert!(!readonly_command_allowed("git status", &task));
+        assert!(readonly_command_allowed("ls -la /tmp", &task));
     }
 
     #[test]

@@ -4,7 +4,7 @@
 //! JSON-RPC routing is in `mcp_protocol`; tool business logic is in `mcp_tools`.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     body::Bytes,
@@ -28,11 +28,16 @@ const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_CONCURRENT_REQUESTS: usize = 64;
 // Must exceed the maximum tool execution timeout (300 seconds).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(310);
+/// 空闲 MCP 会话的保留时长；超时后由清理任务移除。
+const SESSION_TTL: Duration = Duration::from_secs(30 * 60);
+/// 同时存在的 MCP 会话上限，避免只增不删耗尽内存。
+const MAX_SESSIONS: usize = 128;
 
 #[derive(Clone)]
 struct ClientSession {
     context: ClientContext,
     initialized: bool,
+    created_at: Instant,
 }
 
 #[derive(Clone)]
@@ -41,6 +46,8 @@ struct HttpRuntime {
     app: Option<tauri::AppHandle>,
     sessions: Arc<DashMap<String, ClientSession>>,
     semaphore: Arc<Semaphore>,
+    /// 实际监听端口，用于把浏览器 Origin 收敛到本服务。
+    origin_port: u16,
 }
 
 type ReadySender = oneshot::Sender<Result<(), String>>;
@@ -99,10 +106,14 @@ async fn start_inner(
             format!("{host}:{port}")
         };
         let listener = tokio::net::TcpListener::bind(&address).await?;
-        Ok::<_, anyhow::Error>((listener, address))
+        let local_port = listener
+            .local_addr()
+            .map(|addr| addr.port())
+            .unwrap_or(port);
+        Ok::<_, anyhow::Error>((listener, address, local_port))
     }
     .await;
-    let (listener, address) = match prepared {
+    let (listener, address, origin_port) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
             if let Some(sender) = ready.take() {
@@ -127,6 +138,7 @@ async fn start_inner(
         app: Some(app.clone()),
         sessions: Arc::new(DashMap::new()),
         semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
+        origin_port,
     };
     let router = Router::new()
         .route(
@@ -135,14 +147,16 @@ async fn start_inner(
         )
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .layer(middleware::from_fn(add_utf8_charset))
-        .with_state(runtime);
+        .with_state(runtime.clone());
 
     let cleanup_state = state.clone();
+    let cleanup_sessions = runtime.sessions.clone();
     let cleanup = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
             approval::expire_requests(&cleanup_state);
+            prune_sessions(&cleanup_sessions);
             let handles = cleanup_state
                 .inner
                 .read()
@@ -246,7 +260,8 @@ async fn handle_post(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    if let Some(response) = validate_request_headers(&runtime.state, &headers) {
+    if let Some(response) = validate_request_headers(&runtime.state, runtime.origin_port, &headers)
+    {
         return response;
     }
     let permit = match runtime.semaphore.clone().try_acquire_owned() {
@@ -273,7 +288,8 @@ async fn handle_post(
 }
 
 async fn handle_get(State(runtime): State<HttpRuntime>, headers: HeaderMap) -> Response {
-    if let Some(response) = validate_request_headers(&runtime.state, &headers) {
+    if let Some(response) = validate_request_headers(&runtime.state, runtime.origin_port, &headers)
+    {
         return response;
     }
     // This server does not have server-initiated notifications yet. Advertise
@@ -293,7 +309,8 @@ async fn handle_get(State(runtime): State<HttpRuntime>, headers: HeaderMap) -> R
 }
 
 async fn handle_delete(State(runtime): State<HttpRuntime>, headers: HeaderMap) -> Response {
-    if let Some(response) = validate_request_headers(&runtime.state, &headers) {
+    if let Some(response) = validate_request_headers(&runtime.state, runtime.origin_port, &headers)
+    {
         return response;
     }
     let Some(session_id) = header(&headers, "mcp-session-id") else {
@@ -313,9 +330,13 @@ async fn handle_delete(State(runtime): State<HttpRuntime>, headers: HeaderMap) -
     (StatusCode::OK, Json(json!({"ok": true}))).into_response()
 }
 
-fn validate_request_headers(state: &AppState, headers: &HeaderMap) -> Option<Response> {
+fn validate_request_headers(
+    state: &AppState,
+    origin_port: u16,
+    headers: &HeaderMap,
+) -> Option<Response> {
     if let Some(origin) = header(headers, "origin") {
-        if !valid_origin(origin) {
+        if !valid_origin(origin, origin_port) {
             return Some(
                 (
                     StatusCode::FORBIDDEN,
@@ -428,11 +449,24 @@ async fn process_request(
             client_name: info.client_name,
             protocol_version: info.protocol_version,
         };
+        prune_sessions(&runtime.sessions);
+        if runtime.sessions.len() >= MAX_SESSIONS {
+            return json_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                McpResponse::err(
+                    request.id,
+                    -32000,
+                    "too many active MCP sessions; retry after existing sessions expire",
+                ),
+                None,
+            );
+        }
         runtime.sessions.insert(
             session_id.clone(),
             ClientSession {
                 context,
                 initialized: false,
+                created_at: Instant::now(),
             },
         );
         return json_error(
@@ -528,24 +562,36 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     (!token.is_empty()).then_some(token)
 }
 
-pub(crate) fn valid_origin(origin: &str) -> bool {
+pub(crate) fn valid_origin(origin: &str, expected_port: u16) -> bool {
     let Ok(uri) = origin.parse::<axum::http::Uri>() else {
         return false;
     };
     let Some(scheme) = uri.scheme_str() else {
         return false;
     };
-    if !matches!(scheme, "http" | "https" | "tauri") {
-        return false;
-    }
     let Some(host) = uri.host() else {
         return false;
     };
     let host = host.trim_matches(['[', ']']);
-    host.eq_ignore_ascii_case("localhost")
-        || host.eq_ignore_ascii_case("tauri.localhost")
-        || host == "127.0.0.1"
-        || host == "::1"
+    match scheme {
+        // Tauri 自定义协议没有端口概念，只校验主机。
+        "tauri" => {
+            host.eq_ignore_ascii_case("localhost") || host.eq_ignore_ascii_case("tauri.localhost")
+        }
+        "http" | "https" => {
+            let loopback =
+                host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1";
+            // 浏览器 Origin 必须指向本服务实际监听端口，避免任意本地网页跨源访问。
+            loopback && uri.port_u16() == Some(expected_port)
+        }
+        _ => false,
+    }
+}
+
+/// 移除超过 TTL 的空闲 MCP 会话。
+fn prune_sessions(sessions: &DashMap<String, ClientSession>) {
+    let now = Instant::now();
+    sessions.retain(|_, session| now.duration_since(session.created_at) < SESSION_TTL);
 }
 
 /// Axum 的 `Json` 默认只声明 `application/json`，部分客户端会按本地代码页二次解码。
@@ -604,12 +650,15 @@ mod tests {
 
     #[test]
     fn browser_origins_are_restricted_to_local_applications() {
-        assert!(valid_origin("http://localhost:1420"));
-        assert!(valid_origin("http://127.0.0.1:8767"));
-        assert!(valid_origin("tauri://localhost"));
-        assert!(!valid_origin("https://example.com"));
-        assert!(!valid_origin("null"));
-        assert!(!valid_origin("file://local"));
+        assert!(valid_origin("http://localhost:8767", 8767));
+        assert!(valid_origin("http://127.0.0.1:8767", 8767));
+        assert!(valid_origin("tauri://localhost", 8767));
+        // 任意本地端口不再被接受：必须匹配本服务实际监听端口。
+        assert!(!valid_origin("http://localhost:1420", 8767));
+        assert!(!valid_origin("http://127.0.0.1:9999", 8767));
+        assert!(!valid_origin("https://example.com", 8767));
+        assert!(!valid_origin("null", 8767));
+        assert!(!valid_origin("file://local", 8767));
     }
 
     fn authorized_headers(token: &str) -> HeaderMap {
@@ -640,12 +689,13 @@ mod tests {
 
     #[test]
     fn http_authentication_origin_and_accept_fail_closed() {
+        const PORT: u16 = 8767;
         let token = "csh_a-very-long-local-token";
         let state = AppState::new();
         // 测试不应依赖本机已保存的 MCP 凭证状态，先清空再验证“未配置 -> 503”。
         state.inner.write().mcp_credential_hash = None;
         assert_eq!(
-            validate_request_headers(&state, &HeaderMap::new())
+            validate_request_headers(&state, PORT, &HeaderMap::new())
                 .unwrap()
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
@@ -653,13 +703,13 @@ mod tests {
         mcp_auth::install_test_credential(&state, token);
 
         assert_eq!(
-            validate_request_headers(&state, &HeaderMap::new())
+            validate_request_headers(&state, PORT, &HeaderMap::new())
                 .unwrap()
                 .status(),
             StatusCode::UNAUTHORIZED
         );
         assert_eq!(
-            validate_request_headers(&state, &authorized_headers("csh_wrong-token"))
+            validate_request_headers(&state, PORT, &authorized_headers("csh_wrong-token"))
                 .unwrap()
                 .status(),
             StatusCode::UNAUTHORIZED
@@ -668,7 +718,16 @@ mod tests {
         let mut remote_origin = authorized_headers(token);
         remote_origin.insert("origin", HeaderValue::from_static("https://example.com"));
         assert_eq!(
-            validate_request_headers(&state, &remote_origin)
+            validate_request_headers(&state, PORT, &remote_origin)
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+
+        let mut wrong_port = authorized_headers(token);
+        wrong_port.insert("origin", HeaderValue::from_static("http://localhost:1420"));
+        assert_eq!(
+            validate_request_headers(&state, PORT, &wrong_port)
                 .unwrap()
                 .status(),
             StatusCode::FORBIDDEN
@@ -677,7 +736,7 @@ mod tests {
         let mut invalid_accept = authorized_headers(token);
         invalid_accept.insert("accept", HeaderValue::from_static("text/plain"));
         assert_eq!(
-            validate_request_headers(&state, &invalid_accept)
+            validate_request_headers(&state, PORT, &invalid_accept)
                 .unwrap()
                 .status(),
             StatusCode::NOT_ACCEPTABLE
@@ -685,7 +744,36 @@ mod tests {
 
         let mut local_origin = authorized_headers(token);
         local_origin.insert("origin", HeaderValue::from_static("tauri://localhost"));
-        assert!(validate_request_headers(&state, &local_origin).is_none());
+        assert!(validate_request_headers(&state, PORT, &local_origin).is_none());
+    }
+
+    #[test]
+    fn expired_mcp_sessions_are_pruned() {
+        let sessions: DashMap<String, ClientSession> = DashMap::new();
+        let context = |name: &str| ClientContext {
+            client_id: name.to_string(),
+            client_name: name.to_string(),
+            protocol_version: "2025-06-18".to_string(),
+        };
+        sessions.insert(
+            "old".to_string(),
+            ClientSession {
+                context: context("old"),
+                initialized: true,
+                created_at: Instant::now() - SESSION_TTL - Duration::from_secs(1),
+            },
+        );
+        sessions.insert(
+            "fresh".to_string(),
+            ClientSession {
+                context: context("fresh"),
+                initialized: true,
+                created_at: Instant::now(),
+            },
+        );
+        prune_sessions(&sessions);
+        assert!(!sessions.contains_key("old"));
+        assert!(sessions.contains_key("fresh"));
     }
 
     #[tokio::test]
@@ -696,6 +784,7 @@ mod tests {
             app: None,
             sessions: Arc::new(DashMap::new()),
             semaphore: Arc::new(Semaphore::new(MAX_CONCURRENT_REQUESTS)),
+            origin_port: 8767,
         };
         mcp_auth::install_test_credential(&runtime.state, token);
         let initialize = mcp_protocol::parse_request(json!({

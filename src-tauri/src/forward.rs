@@ -15,17 +15,31 @@ use tokio::io::AsyncWriteExt;
 use crate::session::{connect_handle, Handle};
 use crate::state::{AppState, ForwardKind, PortForwardConfig, SessionConfig};
 
-/// 远端转发目标表：服务器监听端口 → 本地目标
-fn remote_targets() -> &'static DashMap<u16, (String, u16)> {
-    static TABLE: OnceLock<DashMap<u16, (String, u16)>> = OnceLock::new();
+/// 远端转发目标表：(会话 ID, 服务器监听端口) → 本地目标
+///
+/// 以会话维度做键，两个会话使用同一远端端口时互不覆盖。
+fn remote_targets() -> &'static DashMap<(String, u16), (String, u16)> {
+    static TABLE: OnceLock<DashMap<(String, u16), (String, u16)>> = OnceLock::new();
     TABLE.get_or_init(DashMap::new)
 }
 
-/// 服务器发起 forwarded-tcpip 通道时，按端口查本地目标
-pub fn remote_target_lookup(port: u32) -> Option<(String, u16)> {
+/// 服务器发起 forwarded-tcpip 通道时，按会话与实际监听端口查本地目标
+pub fn remote_target_lookup(session_id: &str, port: u32) -> Option<(String, u16)> {
     remote_targets()
-        .get(&(port as u16))
+        .get(&(session_id.to_string(), port as u16))
         .map(|g| g.value().clone())
+}
+
+fn remove_remote_target(session_id: &str, port: u16) {
+    remote_targets().remove(&(session_id.to_string(), port));
+}
+
+/// 仅当表里登记的仍是本次启动的停止标志时才移除，避免误删重启后的新条目。
+fn remove_forward_entry(st: &AppState, id: &str, stop: &Arc<AtomicBool>) {
+    st.inner
+        .read()
+        .forwards
+        .remove_if(id, |_, current| Arc::ptr_eq(current, stop));
 }
 
 /// 把服务器发起的转发通道接到本地目标（handler 内 spawn）
@@ -109,21 +123,26 @@ pub fn start(state: &AppState, session_id: &str, fwd: PortForwardConfig) -> Resu
     };
 
     let stop = Arc::new(AtomicBool::new(false));
-    state
+    let _ = state
         .inner
-        .write()
+        .read()
         .forwards
         .insert(fwd.id.clone(), stop.clone());
 
     let spec = fwd.clone();
-    let st = state.clone();
+    let cleanup_state = state.clone();
+    let cleanup_id = spec.id.clone();
+    let cleanup_stop = stop.clone();
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
         {
             Ok(rt) => rt,
-            Err(_) => return,
+            Err(_) => {
+                remove_forward_entry(&cleanup_state, &cleanup_id, &cleanup_stop);
+                return;
+            }
         };
 
         rt.block_on(async move {
@@ -131,13 +150,12 @@ pub fn start(state: &AppState, session_id: &str, fwd: PortForwardConfig) -> Resu
                 Ok(h) => h,
                 Err(e) => {
                     log_line(&cfg, &format!("ERROR 端口转发 SSH 连接失败: {e}"));
-                    st.inner.write().forwards.remove(&spec.id);
                     return;
                 }
             };
 
             match spec.kind {
-                ForwardKind::Remote => run_remote(handle, cfg, spec, stop, st).await,
+                ForwardKind::Remote => run_remote(handle, cfg, spec, stop).await,
                 ForwardKind::Local => {
                     let Some(listener) = listener else { return };
                     let listener = match tokio::net::TcpListener::from_std(listener) {
@@ -178,6 +196,9 @@ pub fn start(state: &AppState, session_id: &str, fwd: PortForwardConfig) -> Resu
                 }
             }
         });
+
+        // 所有退出路径统一回收：SSH 失败、监听失败、正常停止都不会残留规则。
+        remove_forward_entry(&cleanup_state, &cleanup_id, &cleanup_stop);
     });
 
     Ok(())
@@ -189,7 +210,6 @@ async fn run_remote(
     cfg: SessionConfig,
     spec: PortForwardConfig,
     stop: Arc<AtomicBool>,
-    st: AppState,
 ) {
     let bind = if spec.listen_host.trim().is_empty() {
         "0.0.0.0".to_string()
@@ -208,7 +228,10 @@ async fn run_remote(
             } else {
                 assigned
             };
-            remote_targets().insert(actual_port as u16, (spec.dest_host.clone(), spec.dest_port));
+            let _ = remote_targets().insert(
+                (cfg.id.clone(), actual_port as u16),
+                (spec.dest_host.clone(), spec.dest_port),
+            );
             log_line(
                 &cfg,
                 &format!(
@@ -224,18 +247,17 @@ async fn run_remote(
             let _ = handle
                 .cancel_tcpip_forward(bind.clone(), spec.listen_port as u32)
                 .await;
-            remote_targets().remove(&(actual_port as u16));
+            remove_remote_target(&cfg.id, actual_port as u16);
             log_line(&cfg, "远端转发已停止");
         }
         Err(e) => {
             log_line(&cfg, &format!("ERROR 远端转发启动失败: {e}"));
-            st.inner.write().forwards.remove(&spec.id);
         }
     }
 }
 
 pub fn stop(state: &AppState, id: &str) {
-    let flag = state.inner.write().forwards.remove(id).map(|(_, f)| f);
+    let flag = state.inner.read().forwards.remove(id).map(|(_, f)| f);
     if let Some(f) = flag {
         f.store(true, Ordering::Relaxed);
     }
@@ -259,4 +281,55 @@ async fn bridge_direct(
     };
     let mut remote = ch.into_stream();
     let _ = tokio::io::copy_bidirectional(&mut local, &mut remote).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_targets_are_isolated_per_session_and_port() {
+        // 两个会话可以使用同一个远端端口而不互相覆盖。
+        let _ = remote_targets().insert(
+            ("forward-test-s1".to_string(), 18080),
+            ("127.0.0.1".to_string(), 8000),
+        );
+        let _ = remote_targets().insert(
+            ("forward-test-s2".to_string(), 18080),
+            ("127.0.0.1".to_string(), 8001),
+        );
+        assert_eq!(
+            remote_target_lookup("forward-test-s1", 18080),
+            Some(("127.0.0.1".to_string(), 8000))
+        );
+        assert_eq!(
+            remote_target_lookup("forward-test-s2", 18080),
+            Some(("127.0.0.1".to_string(), 8001))
+        );
+        assert_eq!(remote_target_lookup("forward-test-s3", 18080), None);
+        remove_remote_target("forward-test-s1", 18080);
+        assert_eq!(remote_target_lookup("forward-test-s1", 18080), None);
+        // 移除一个会话的规则不会影响另一个会话。
+        assert_eq!(
+            remote_target_lookup("forward-test-s2", 18080),
+            Some(("127.0.0.1".to_string(), 8001))
+        );
+        remove_remote_target("forward-test-s2", 18080);
+    }
+
+    #[test]
+    fn forward_entry_cleanup_only_removes_its_own_flag() {
+        let state = AppState::new();
+        let mine = Arc::new(AtomicBool::new(false));
+        let other = Arc::new(AtomicBool::new(false));
+        let _ = state
+            .inner
+            .read()
+            .forwards
+            .insert("fwd-test".to_string(), mine.clone());
+        remove_forward_entry(&state, "fwd-test", &other);
+        assert!(state.inner.read().forwards.contains_key("fwd-test"));
+        remove_forward_entry(&state, "fwd-test", &mine);
+        assert!(!state.inner.read().forwards.contains_key("fwd-test"));
+    }
 }

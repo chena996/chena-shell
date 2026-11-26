@@ -68,13 +68,13 @@ pub fn create_session(
         settings.confirm_list,
     );
     let id = config.id.clone();
-    state
+    let _ = state
         .inner
-        .write()
+        .read()
         .sessions
         .insert(id.clone(), Arc::new(handle));
     if let Err(error) = persist(&state) {
-        state.inner.write().sessions.remove(&id);
+        let _ = state.inner.read().sessions.remove(&id);
         if let Err(cleanup) = crate::state::cleanup_obsolete_session_secrets(&config, &original) {
             return Err(format!("会话保存失败: {error}；新秘密清理失败: {cleanup}"));
         }
@@ -107,7 +107,7 @@ pub fn disconnect_session(session_id: String, state: State<'_, AppState>) -> Res
     handle.force_detach(&state);
     handle.close();
     crate::approval::cancel_session(&state, &session_id, "会话已断开，未决审批已取消");
-    state.inner.write().monitor_samples.remove(&session_id);
+    let _ = state.inner.read().monitor_samples.remove(&session_id);
     Ok(())
 }
 
@@ -120,9 +120,9 @@ pub fn delete_session(session_id: String, state: State<'_, AppState>) -> Result<
     if let Some(h) = &handle {
         h.close();
     }
-    state.inner.write().sessions.remove(&session_id);
-    state.inner.write().ai_events.remove(&session_id);
-    state.inner.write().monitor_samples.remove(&session_id);
+    let _ = state.inner.read().sessions.remove(&session_id);
+    let _ = state.inner.read().ai_events.remove(&session_id);
+    let _ = state.inner.read().monitor_samples.remove(&session_id);
     if let Err(error) = persist(&state) {
         if let Some(handle) = &handle {
             state
@@ -749,9 +749,19 @@ fn sftp_edit_is_cancelled(edit_id: &str) -> bool {
         .contains(edit_id)
 }
 
+/// Windows 设备保留名：这些名字不能作为普通文件名使用。
+fn is_windows_reserved_name(stem: &str) -> bool {
+    let upper = stem.to_ascii_uppercase();
+    matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (upper.len() == 4
+            && matches!(&upper[..3], "COM" | "LPT")
+            && upper.as_bytes()[3].is_ascii_digit()
+            && upper.as_bytes()[3] != b'0')
+}
+
 fn sftp_edit_safe_name(remote_path: &str) -> String {
     let name = remote_path.rsplit('/').next().unwrap_or("file");
-    let sanitized: String = name
+    let mut sanitized: String = name
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' {
@@ -761,10 +771,46 @@ fn sftp_edit_safe_name(remote_path: &str) -> String {
             }
         })
         .collect();
+    // Windows 会忽略结尾的点和空格，可能导致意外的路径解析。
+    while sanitized.ends_with('.') || sanitized.ends_with(' ') {
+        sanitized.pop();
+    }
     if sanitized.is_empty() || sanitized.starts_with('.') {
-        format!("file{sanitized}")
-    } else {
-        sanitized
+        sanitized = format!("file{sanitized}");
+    }
+    // 保留名（CON/NUL/COM1…）改写成普通文件名，避免打开设备。
+    let stem = sanitized.split('.').next().unwrap_or_default();
+    if is_windows_reserved_name(stem) {
+        sanitized = format!("_{sanitized}");
+    }
+    sanitized
+}
+
+/// 编辑缓存保留期：超过后启动时清理，避免明文副本长期残留。
+const SFTP_EDIT_CACHE_RETENTION_SECS: u64 = 7 * 86_400;
+
+/// 启动时清理超期的编辑缓存目录（未保存/冲突遗留的本地明文副本）。
+pub(crate) fn cleanup_edit_cache() {
+    let root = crate::state::app_dir().join("edit");
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+        let expired = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age.as_secs() > SFTP_EDIT_CACHE_RETENTION_SECS);
+        if expired {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
     }
 }
 
@@ -1612,9 +1658,24 @@ pub fn read_local_dir(path: String) -> Result<Vec<(String, bool, u64, u64, bool)
 }
 
 /// 读取本地文件内容并返回 base64（用于右键直接上传）
+const MAX_LOCAL_READ_BYTES: u64 = 20 * 1024 * 1024;
+
 #[tauri::command]
 pub fn read_local_file_base64(path: String) -> Result<String, String> {
+    let metadata = std::fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    if !metadata.is_file() {
+        return Err("只能读取普通文件".into());
+    }
+    if metadata.len() > MAX_LOCAL_READ_BYTES {
+        return Err(format!(
+            "文件超过 20 MiB 上限，不能通过此接口读取（{} 字节）",
+            metadata.len()
+        ));
+    }
     let data = std::fs::read(&path).map_err(|e| format!("读文件失败: {e}"))?;
+    if data.len() as u64 > MAX_LOCAL_READ_BYTES {
+        return Err("文件超过 20 MiB 上限，不能通过此接口读取".into());
+    }
     use base64::Engine;
     Ok(base64::engine::general_purpose::STANDARD.encode(&data))
 }
@@ -2450,7 +2511,7 @@ pub fn open_sftp_window(
     });
 
     // 注册到 state
-    state.inner.write().sftp_windows.insert(session_id, label);
+    let _ = state.inner.read().sftp_windows.insert(session_id, label);
     Ok(())
 }
 
@@ -2763,6 +2824,37 @@ mod tests {
                 .check("confirm", SecurityPolicy::Recommended),
             CheckResult::Allow
         );
+    }
+
+    #[test]
+    fn edit_cache_name_filters_windows_reserved_names() {
+        assert_eq!(sftp_edit_safe_name("/etc/CON"), "_CON");
+        assert_eq!(sftp_edit_safe_name("/etc/nul.txt"), "_nul.txt");
+        assert_eq!(sftp_edit_safe_name("/etc/COM1"), "_COM1");
+        assert_eq!(sftp_edit_safe_name("/etc/LPT9.log"), "_LPT9.log");
+        assert_eq!(sftp_edit_safe_name("/etc/COM0"), "COM0");
+        assert_eq!(sftp_edit_safe_name("/etc/nginx.conf"), "nginx.conf");
+        // 结尾点与空格被去掉，前导点改写成普通文件名。
+        assert_eq!(sftp_edit_safe_name("/etc/conf."), "conf");
+        assert_eq!(sftp_edit_safe_name("/etc/.env"), "file.env");
+    }
+
+    #[test]
+    fn read_local_file_base64_rejects_oversized_files() {
+        let dir = std::env::temp_dir().join(format!("chena-read-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let small = dir.join("small.txt");
+        std::fs::write(&small, b"hello").unwrap();
+        assert!(read_local_file_base64(small.to_string_lossy().to_string()).is_ok());
+
+        let large = dir.join("large.bin");
+        let file = std::fs::File::create(&large).unwrap();
+        file.set_len(MAX_LOCAL_READ_BYTES + 1).unwrap();
+        drop(file);
+        let error = read_local_file_base64(large.to_string_lossy().to_string()).unwrap_err();
+        assert!(error.contains("20 MiB"), "{error}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

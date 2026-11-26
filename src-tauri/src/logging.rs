@@ -163,10 +163,21 @@ fn sanitize(id: &str) -> String {
 
 const MAX_PENDING_LINE_BYTES: usize = 1024 * 1024;
 
+/// 当前是否处在需要整块遮蔽的私钥内容中。
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum SecretBlock {
+    #[default]
+    None,
+    /// PEM 私钥：以 `-----END ... PRIVATE KEY-----` 结束。
+    Pem,
+    /// PuTTY .ppk 私钥：以 `Private-MAC:` 行结束。
+    Ppk,
+}
+
 #[derive(Default)]
 struct StreamRedactor {
     pending: String,
-    in_private_key: bool,
+    block: SecretBlock,
 }
 
 impl StreamRedactor {
@@ -178,14 +189,14 @@ impl StreamRedactor {
         }
         let complete = self.pending[..complete_len].to_string();
         self.pending.drain(..complete_len);
-        let mut out = redact_complete_lines(&complete, &mut self.in_private_key);
+        let mut out = redact_complete_lines(&complete, &mut self.block);
         out.push_str(&self.suppress_overlong_line());
         out
     }
 
     fn finish(&mut self) -> String {
         let pending = std::mem::take(&mut self.pending);
-        redact_complete_lines(&pending, &mut self.in_private_key)
+        redact_complete_lines(&pending, &mut self.block)
     }
 
     fn suppress_overlong_line(&mut self) -> String {
@@ -193,7 +204,7 @@ impl StreamRedactor {
             return String::new();
         }
         self.pending.clear();
-        self.in_private_key = false;
+        self.block = SecretBlock::None;
         "[REDACTED: 超长无换行终端输出已抑制]\n".into()
     }
 }
@@ -203,9 +214,13 @@ fn redactions() -> &'static [(regex::Regex, &'static str)] {
     RULES.get_or_init(|| {
         [
             (r"(?s)-----BEGIN [^\r\n]*PRIVATE KEY-----.*?-----END [^\r\n]*PRIVATE KEY-----", "[REDACTED PRIVATE KEY]"),
-            (r#"(?i)\b((?:password|passwd|passphrase|pwd|access_?token|refresh_?token|attach_?token|api_?key|token)\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s;]+)"#, "${1}[REDACTED]"),
+            // 赋值式秘密：password/token/secret/api_key 等，兼容 AWS_SECRET_ACCESS_KEY、client_secret 这类复合键名。
+            (r#"(?i)\b([a-z0-9_]*(?:password|passwd|passphrase|pwd|secret|token|api_?key|access_?key)[a-z0-9_]*\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s;]+)"#, "${1}[REDACTED]"),
             (r"(?i)(\b(?:authorization\s*[:=]\s*)?bearer\s+)[A-Za-z0-9._~+/=-]+", "${1}[REDACTED]"),
             (r#"(?i)(--(?:password|passphrase|token|api-key)(?:=|\s+))(?:"[^"]*"|'[^']*'|[^\s;]+)"#, "${1}[REDACTED]"),
+            // mysql 的 -p<口令> 与 sshpass -p <口令> 常出现在命令行回显中。
+            (r#"((?i:mysql)\b[^\r\n]*?\s-p)(?:"[^"]*"|'[^']*'|[^\s]+)"#, "${1}[REDACTED]"),
+            (r#"((?i:sshpass)\s+-p\s*)(?:"[^"]*"|'[^']*'|[^\s]+)"#, "${1}[REDACTED]"),
             (r"\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b", "[REDACTED TOKEN]"),
             (r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{20,}\b|\bsk-[A-Za-z0-9_-]{20,}\b|\bxox[baprs]-[A-Za-z0-9-]{10,}\b", "[REDACTED KEY]"),
         ]
@@ -280,18 +295,62 @@ fn pem_marker(line: &str, kind: &str) -> Option<(usize, usize)> {
     Some((start, start + relative_end + " PRIVATE KEY-----".len()))
 }
 
-fn redact_complete_lines(input: &str, in_private_key: &mut bool) -> String {
+/// PuTTY .ppk 私钥头部：`PuTTY-User-Key-File-2: ssh-rsa`
+fn ppk_begin_index(line: &str) -> Option<usize> {
+    line.find("PuTTY-User-Key-File-")
+}
+
+/// .ppk 结束行 `Private-MAC: <hex>`，返回 (起始, 值结束) 索引。
+fn ppk_end_marker(line: &str) -> Option<(usize, usize)> {
+    let start = line.find("Private-MAC:")?;
+    let rest = &line[start..];
+    let end = rest
+        .find('\n')
+        .map(|index| start + index)
+        .unwrap_or(line.len());
+    Some((start, end))
+}
+
+fn redact_complete_lines(input: &str, block: &mut SecretBlock) -> String {
     let mut out = String::with_capacity(input.len());
     for segment in input.split_inclusive('\n') {
         let mut line = segment;
         loop {
-            if *in_private_key {
-                let Some((_, end)) = pem_marker(line, "END") else {
-                    break;
-                };
-                *in_private_key = false;
-                line = &line[end..];
-                continue;
+            match *block {
+                SecretBlock::Pem => {
+                    let Some((_, end)) = pem_marker(line, "END") else {
+                        break;
+                    };
+                    *block = SecretBlock::None;
+                    line = &line[end..];
+                    continue;
+                }
+                SecretBlock::Ppk => {
+                    // 结束行连同其后的私钥 MAC 一起丢弃，恢复普通输出。
+                    let Some((_, end)) = ppk_end_marker(line) else {
+                        if line.ends_with('\n') {
+                            out.push('\n');
+                        }
+                        break;
+                    };
+                    *block = SecretBlock::None;
+                    line = &line[end..];
+                    continue;
+                }
+                SecretBlock::None => {}
+            }
+            if let Some(begin) = ppk_begin_index(line) {
+                out.push_str(&redact_text(&line[..begin]));
+                out.push_str("[REDACTED PRIVATE KEY]");
+                if let Some((_, end)) = ppk_end_marker(&line[begin..]) {
+                    line = &line[begin + end..];
+                    continue;
+                }
+                *block = SecretBlock::Ppk;
+                if line.ends_with('\n') {
+                    out.push('\n');
+                }
+                break;
             }
             if let Some((begin, _)) = pem_marker(line, "BEGIN") {
                 out.push_str(&redact_text(&line[..begin]));
@@ -300,7 +359,7 @@ fn redact_complete_lines(input: &str, in_private_key: &mut bool) -> String {
                     line = &line[begin + end..];
                     continue;
                 }
-                *in_private_key = true;
+                *block = SecretBlock::Pem;
                 if line.ends_with('\n') {
                     out.push('\n');
                 }
@@ -458,7 +517,83 @@ fn write_line(path: &std::path::Path, line: &str) -> std::io::Result<()> {
     f.flush()
 }
 
+/// 有界异步日志队列：把终端的逐块写入合并为批量落盘，避免阻塞 SSH 读取热路径。
+struct PendingLogWrites {
+    buffers: std::sync::Arc<Mutex<std::collections::HashMap<std::path::PathBuf, String>>>,
+    write_lock: std::sync::Arc<Mutex<()>>,
+    notify: std::sync::mpsc::SyncSender<()>,
+}
+
+fn pending_log_writes() -> &'static PendingLogWrites {
+    static PENDING: OnceLock<PendingLogWrites> = OnceLock::new();
+    PENDING.get_or_init(|| {
+        let (notify, rx) = std::sync::mpsc::sync_channel::<()>(1);
+        let buffers = std::sync::Arc::new(Mutex::new(std::collections::HashMap::new()));
+        let write_lock = std::sync::Arc::new(Mutex::new(()));
+        let worker_buffers = buffers.clone();
+        let worker_lock = write_lock.clone();
+        let _ = std::thread::Builder::new()
+            .name("chena-log-writer".into())
+            .spawn(move || loop {
+                // 先等到有写入请求，再合并 100ms 内的所有块统一落盘。
+                if rx.recv().is_err() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                flush_buffers(&worker_buffers, &worker_lock);
+            });
+        PendingLogWrites {
+            buffers,
+            write_lock,
+            notify,
+        }
+    })
+}
+
+fn enqueue_output(path: &std::path::Path, output: &str) {
+    if output.is_empty() {
+        return;
+    }
+    let pending = pending_log_writes();
+    {
+        let mut buffers = pending
+            .buffers
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        buffers
+            .entry(path.to_path_buf())
+            .or_default()
+            .push_str(output);
+    }
+    let _ = pending.notify.try_send(());
+}
+
+fn flush_buffers(
+    buffers: &Mutex<std::collections::HashMap<std::path::PathBuf, String>>,
+    write_lock: &Mutex<()>,
+) {
+    let _writing = write_lock.lock().unwrap_or_else(|error| error.into_inner());
+    let batches: Vec<(std::path::PathBuf, String)> = {
+        let mut buffers = buffers.lock().unwrap_or_else(|error| error.into_inner());
+        buffers.drain().collect()
+    };
+    for (path, data) in batches {
+        let _ = write_output_now(&path, &data);
+    }
+}
+
+/// 立即把队列中的日志落盘；结束日志前调用，保证收尾行顺序正确。
+pub fn flush_pending_logs() {
+    let pending = pending_log_writes();
+    flush_buffers(&pending.buffers, &pending.write_lock);
+}
+
 fn append_output(path: &std::path::Path, output: &str) -> std::io::Result<()> {
+    enqueue_output(path, output);
+    Ok(())
+}
+
+fn write_output_now(path: &std::path::Path, output: &str) -> std::io::Result<()> {
     use std::io::Write;
     if output.is_empty() {
         return Ok(());
@@ -478,6 +613,31 @@ fn append_output(path: &std::path::Path, output: &str) -> std::io::Result<()> {
 }
 
 fn emit_log_appended(session_id: &str, path: &std::path::Path) {
+    // log-appended 只用于刷新面板，至少 1s 才推送一次，避免每个终端块都触发 IPC。
+    static LAST: OnceLock<Mutex<std::collections::HashMap<String, std::time::Instant>>> =
+        OnceLock::new();
+    let now = std::time::Instant::now();
+    let key = format!("{session_id}:{}", path.display());
+    {
+        let mut last = LAST
+            .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if last
+            .get(&key)
+            .is_some_and(|previous| now.duration_since(*previous).as_secs() < 1)
+        {
+            return;
+        }
+        if last.len() > 256 {
+            last.retain(|_, previous| now.duration_since(*previous).as_secs() < 60);
+        }
+        last.insert(key, now);
+    }
+    emit_log_appended_now(session_id, path);
+}
+
+fn emit_log_appended_now(session_id: &str, path: &std::path::Path) {
     let name = path
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
@@ -614,23 +774,20 @@ pub fn start_session_log_with_retention(
 /// 记录一条事件（连接过程、认证结果、错误、断开等）
 pub fn log_event(session_id: &str, level: &str, message: &str) {
     if let Some(path) = active_path(session_id) {
-        if write_line(
-            &path,
-            &format!("{} [{level}] {}", stamp_full(), redact_text(message)),
-        )
-        .is_ok()
-        {
-            emit_log_appended(session_id, &path);
-        }
+        let line = format!("{} [{level}] {}\n", stamp_full(), redact_text(message));
+        enqueue_output(&path, &line);
+        emit_log_appended(session_id, &path);
     }
 }
 
 /// 结束日志：flush 最后一行，写入收尾行并取消登记
 pub fn end_session_log(session_id: &str, reason: &str) {
+    // 先把异步队列中的终端输出落盘，保证收尾行顺序正确。
+    flush_pending_logs();
     let active = active_files().lock().unwrap().remove(session_id);
     if let Some(mut active) = active {
         let tail = active.redactor.finish();
-        let mut wrote = !tail.is_empty() && append_output(&active.path, &tail).is_ok();
+        let mut wrote = !tail.is_empty() && write_output_now(&active.path, &tail).is_ok();
         wrote |= write_line(
             &active.path,
             &format!(
@@ -641,7 +798,7 @@ pub fn end_session_log(session_id: &str, reason: &str) {
         )
         .is_ok();
         if wrote {
-            emit_log_appended(session_id, &active.path);
+            emit_log_appended_now(session_id, &active.path);
         }
     }
 }
@@ -777,6 +934,44 @@ mod tests {
         let output = redact_text("回显: S3cret-sudo-pass-2026 已用于 sudo");
         assert!(!output.contains("S3cret-sudo-pass-2026"));
         assert!(output.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn redacts_extended_secret_forms() {
+        let input = concat!(
+            "export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+            "client_secret: s3cr3t-client-value\n",
+            "APP_SECRET=abc123secret\n",
+            "mysql -uroot -pS3cretDbPass -e 'show databases'\n",
+            "sshpass -p 'ssh-pass-123' ssh deploy@host\n",
+        );
+        let output = redact_text(input);
+        for leaked in [
+            "wJalrXUtnFEMI",
+            "s3cr3t-client-value",
+            "abc123secret",
+            "S3cretDbPass",
+            "ssh-pass-123",
+        ] {
+            assert!(!output.contains(leaked), "未脱敏: {leaked}\n{output}");
+        }
+        assert!(output.contains("mysql -uroot -p[REDACTED]"));
+        assert!(output.contains("sshpass -p [REDACTED]"));
+    }
+
+    #[test]
+    fn stream_redactor_masks_putty_private_key_block() {
+        let mut redactor = StreamRedactor::default();
+        let first = redactor
+            .push("before\nPuTTY-User-Key-File-2: ssh-rsa\nEncryption: none\nPrivate-Lines: 1\n");
+        assert!(first.contains("before"));
+        assert!(first.contains("[REDACTED PRIVATE KEY]"));
+        assert!(!first.contains("Private-Lines"));
+        let second =
+            redactor.push("AAAAB3NzaC1yc2E-private-material\nPrivate-MAC: deadbeefcafe\nafter\n");
+        assert!(second.contains("after"));
+        assert!(!second.contains("AAAAB3NzaC1yc2E"));
+        assert!(!second.contains("deadbeefcafe"));
     }
 
     #[test]

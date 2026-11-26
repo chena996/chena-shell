@@ -1,6 +1,6 @@
 # Chena-Shell AI 使用说明
 
-> 适用版本：V1.0.0.12
+> 适用版本：V1.0.0.13
 > 适用对象：AI 助手（也适用于想手动配置 MCP 的人）
 > 目标：把本文件和配套 skill 交给 AI 后，AI 能自行安装 skill、连接 Chena-Shell 的 MCP 服务并正确调用工具
 
@@ -58,7 +58,7 @@ Chena-Shell 是运行在用户 Windows 本机的桌面 SSH 终端，内置标准
 2. 勾选「启用 MCP 服务」，确认监听地址为 `127.0.0.1`，记录实际端口（默认 `8767`）。
 3. 让用户点击「重新生成凭证」并在应用内确认，然后立即复制完整凭证。完整值只显示一次；点击「取消」不会生成新凭证。
 4. **优先让用户自己把凭证粘贴到 MCP 客户端配置中**，不要求用户把凭证发到聊天里。如果用户明确交由 AI 修改本机客户端配置，只能把凭证写入相应配置，不得在回复、日志、报告或命令行参数中显示，也不能提交到仓库。
-5. HTTP 客户端把凭证填为 `Authorization: Bearer <凭证>`；stdio 客户端把凭证填为环境变量 `CHENA_MCP_TOKEN`，并将 `command` 设为绿色版 `Chena-Shell_V1.0.0.12.exe` 的实际完整路径。
+5. HTTP 客户端把凭证填为 `Authorization: Bearer <凭证>`；stdio 客户端把凭证填为环境变量 `CHENA_MCP_TOKEN`，并将 `command` 设为绿色版 `Chena-Shell_V1.0.0.13.exe` 的实际完整路径。
 6. 保存配置后，让用户重启或重新连接 MCP 客户端；AI 再执行初始化和 `tools/list` 验证，而不是在未配置凭证时反复调用业务工具。
 
 必须向用户区分两种凭证：
@@ -75,7 +75,7 @@ Chena-Shell 是运行在用户 Windows 本机的桌面 SSH 终端，内置标准
 | Streamable HTTP | `POST http://127.0.0.1:8767/mcp` |
 | HTTP 认证 | `Authorization: Bearer <凭证>` |
 | HTTP 额外要求 | `Accept: application/json, text/event-stream`；初始化后携带 `mcp-session-id` 与 `mcp-protocol-version` |
-| stdio | `Chena-Shell_V1.0.0.12.exe --mcp-stdio` |
+| stdio | `Chena-Shell_V1.0.0.13.exe --mcp-stdio` |
 | stdio 环境变量 | `CHENA_MCP_TOKEN=<凭证>`；非默认端口时加 `CHENA_MCP_URL=http://127.0.0.1:<端口>/mcp` |
 
 只允许 loopback 地址。服务默认不接受浏览器跨站请求，Origin 受限制。
@@ -103,7 +103,7 @@ stdio：
 {
   "mcpServers": {
     "chena-shell": {
-      "command": "C:\\path\\to\\Chena-Shell_V1.0.0.12.exe",
+      "command": "C:\\path\\to\\Chena-Shell_V1.0.0.13.exe",
       "args": ["--mcp-stdio"],
       "env": {
         "CHENA_MCP_TOKEN": "<凭证>",
@@ -126,7 +126,7 @@ stdio：
 
 ## 3. 工具清单（18 个）
 
-以 `tools/list` 的实际返回为准；下面是 V1.0.0.12 的工具与参数。
+以 `tools/list` 的实际返回为准；下面是 V1.0.0.13 的工具与参数。
 
 ### 3.1 会话与接入
 
@@ -376,7 +376,7 @@ SFTP 工具使用独立认证的 SFTP 连接，要求 attach 时已授予 `sftp`
 
 ## 6. 安装 skill
 
-绿色版已经在解压根目录提供 `SKILL.md`，与 `Chena-Shell_V1.0.0.12.exe`、`AI-使用说明.md` 放在一起。如果只有 EXE，应先向用户索要完整绿色版压缩包，不要猜测或联网下载其他来源的 skill。源码目录中的对应文件是 `.trae/skills/chena-shell/SKILL.md`，但操作绿色版时不需要访问源码。
+绿色版已经在解压根目录提供 `SKILL.md`，与 `Chena-Shell_V1.0.0.13.exe`、`AI-使用说明.md` 放在一起。如果只有 EXE，应先向用户索要完整绿色版压缩包，不要猜测或联网下载其他来源的 skill。源码目录中的对应文件是 `.trae/skills/chena-shell/SKILL.md`，但操作绿色版时不需要访问源码。
 
 AI 可自行执行：
 
@@ -435,7 +435,7 @@ Copy-Item -LiteralPath $src -Destination (Join-Path $dst 'SKILL.md') -Force
 ## 9. 升级注意事项与版本边界
 
 - **更新 Chena-Shell 后，需要在 AI 客户端重连 MCP 服务（或重启客户端）以刷新 `tools/list`。** 多数 MCP 客户端会缓存工具列表；只升级服务端而不重连，会出现「文档里有新工具/新参数、调用却报错」的情况。例如新增的 `diag` 模式与 `task` 参数，未刷新时可能仍按旧 schema 校验。
-- 当前交付为 V1.0.0.12，Windows x64 绿色版（不提供 NSIS/MSI 安装包）。
+- 当前交付为 V1.0.0.13，Windows x64 绿色版（不提供 NSIS/MSI 安装包）。
 - 「复制 SSH 渠道」的真实双向字节流尚未完成本机复验，AI 不应把它当作已验收能力向用户保证；但多连接下的定向 attach、独立回放与活跃连接自检已实现，可用 `session_list.connections` 确认当前可绑定的连接。
 - `sftp_read` / `sftp_write` 单次上限 1 MiB；更大的文件请让用户用 SFTP 窗口操作。
 - 主机监控快照依赖独立监控连接，刚连接时可能暂无数据，稍后再取。

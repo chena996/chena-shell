@@ -15,12 +15,14 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
+          components: rustfmt, clippy
       - run: npm ci
       - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: cargo fmt --check
+        working-directory: src-tauri
+      - run: cargo clippy -- -D warnings
         working-directory: src-tauri
       - run: cargo check
         working-directory: src-tauri

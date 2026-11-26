@@ -34,6 +34,10 @@ const REMOTE_PART_SUFFIX: &str = ".part";
 const RESUME_SUFFIX: &str = ".part.chena.json";
 const TRANSFER_PROGRESS_EVENT: &str = "transfer-progress";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
+/// 单次 SFTP 读写超时：黑洞网络下也能及时失败而不是永久挂起。
+const SFTP_IO_TIMEOUT: Duration = Duration::from_secs(60);
+/// 建立 SFTP 连接超时。
+const SFTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ControlState {
@@ -301,7 +305,7 @@ fn clear_progress_event(job_id: &str) {
 fn job_start(state: &AppState, spec: &TransferSpec, size: u64) -> String {
     let id = format!("job-{}", uuid::Uuid::new_v4());
     let inner = state.inner.read();
-    inner.transfers.insert(
+    let _ = inner.transfers.insert(
         id.clone(),
         TransferJob {
             id: id.clone(),
@@ -453,7 +457,7 @@ async fn run(
             match cleanup {
                 Ok(()) => {
                     clear_progress_event(&job_id);
-                    state.inner.write().transfers.remove(&job_id);
+                    let _ = state.inner.read().transfers.remove(&job_id);
                     control.finish();
                     Err("传输已取消，临时文件已清理".into())
                 }
@@ -469,7 +473,7 @@ async fn run(
             match cleanup_partial(&config, &spec).await {
                 Ok(()) => {
                     clear_progress_event(&job_id);
-                    state.inner.write().transfers.remove(&job_id);
+                    let _ = state.inner.read().transfers.remove(&job_id);
                 }
                 Err(cleanup_error) => job_done(
                     state,
@@ -664,7 +668,9 @@ async fn execute_upload(
         current_bytes(state, job_id),
     );
 
-    let connection = sftp::connect(config.clone()).await?;
+    let connection = tokio::time::timeout(SFTP_CONNECT_TIMEOUT, sftp::connect(config.clone()))
+        .await
+        .map_err(|_| format!("连接 SFTP 超时（{}s）", SFTP_CONNECT_TIMEOUT.as_secs()))??;
     let sftp = &connection.session;
     ensure_target_absent(remote_exists(sftp, &spec.remote_path).await?)?;
     sftp::mkdir_p(sftp, &sftp::remote_parent(&spec.remote_path)).await?;
@@ -706,20 +712,20 @@ async fn execute_upload(
     let mut buffer = vec![0u8; CHUNK_SIZE];
     loop {
         control.wait_ready().await?;
-        let count = source
-            .read(&mut buffer)
+        let count = tokio::time::timeout(SFTP_IO_TIMEOUT, source.read(&mut buffer))
             .await
+            .map_err(|_| format!("读取本地源文件超时（{}s）", SFTP_IO_TIMEOUT.as_secs()))?
             .map_err(|e| format!("读取本地源文件失败: {e}"))?;
         if count == 0 {
             break;
         }
-        destination
-            .write_all(&buffer[..count])
+        tokio::time::timeout(SFTP_IO_TIMEOUT, destination.write_all(&buffer[..count]))
             .await
+            .map_err(|_| format!("写入远端临时文件超时（{}s）", SFTP_IO_TIMEOUT.as_secs()))?
             .map_err(|e| format!("写入远端临时文件失败: {e}"))?;
-        destination
-            .flush()
+        tokio::time::timeout(SFTP_IO_TIMEOUT, destination.flush())
             .await
+            .map_err(|_| format!("确认远端写入超时（{}s）", SFTP_IO_TIMEOUT.as_secs()))?
             .map_err(|e| format!("确认远端写入失败: {e}"))?;
         offset += count as u64;
         if offset > fingerprint.size {
@@ -727,9 +733,9 @@ async fn execute_upload(
         }
         update_progress(state, job_id, fingerprint.size, offset);
     }
-    destination
-        .close()
+    tokio::time::timeout(SFTP_IO_TIMEOUT, destination.close())
         .await
+        .map_err(|_| format!("关闭远端临时文件超时（{}s）", SFTP_IO_TIMEOUT.as_secs()))?
         .map_err(|e| format!("关闭远端临时文件失败: {e}"))?;
     if offset != fingerprint.size {
         return Err(format!(
@@ -761,7 +767,9 @@ async fn execute_download(
     job_id: &str,
     control: &TransferControl,
 ) -> Result<u64, TransferError> {
-    let connection = sftp::connect(config.clone()).await?;
+    let connection = tokio::time::timeout(SFTP_CONNECT_TIMEOUT, sftp::connect(config.clone()))
+        .await
+        .map_err(|_| format!("连接 SFTP 超时（{}s）", SFTP_CONNECT_TIMEOUT.as_secs()))??;
     let sftp = &connection.session;
     let source_metadata = sftp
         .metadata(spec.remote_path.clone())
@@ -824,9 +832,9 @@ async fn execute_download(
     let mut buffer = vec![0u8; CHUNK_SIZE];
     loop {
         control.wait_ready().await?;
-        let count = source
-            .read(&mut buffer)
+        let count = tokio::time::timeout(SFTP_IO_TIMEOUT, source.read(&mut buffer))
             .await
+            .map_err(|_| format!("读取远端源文件超时（{}s）", SFTP_IO_TIMEOUT.as_secs()))?
             .map_err(|e| format!("读取远端源文件失败: {e}"))?;
         if count == 0 {
             break;
@@ -850,9 +858,9 @@ async fn execute_download(
         .await
         .map_err(|e| format!("完成本地临时文件写入失败: {e}"))?;
     drop(destination);
-    source
-        .close()
+    tokio::time::timeout(SFTP_IO_TIMEOUT, source.close())
         .await
+        .map_err(|_| format!("关闭远端源文件超时（{}s）", SFTP_IO_TIMEOUT.as_secs()))?
         .map_err(|e| format!("关闭远端源文件失败: {e}"))?;
     if offset != fingerprint.size {
         return Err(format!(
@@ -881,7 +889,12 @@ async fn cleanup_partial(config: &SessionConfig, spec: &TransferSpec) -> Result<
     match spec.direction {
         TransferDirection::Upload => {
             // 原 worker 已停止；用全新的 SSH/SFTP channel 清理，避免复用失败连接。
-            let connection = sftp::connect(config.clone()).await?;
+            let connection =
+                tokio::time::timeout(SFTP_CONNECT_TIMEOUT, sftp::connect(config.clone()))
+                    .await
+                    .map_err(|_| {
+                        format!("连接 SFTP 超时（{}s）", SFTP_CONNECT_TIMEOUT.as_secs())
+                    })??;
             let part = remote_part_path(&spec.remote_path);
             let resume = remote_resume_path(&spec.remote_path);
             let part_result = sftp::remove_file_if_exists(&connection.session, &part).await;
@@ -942,7 +955,19 @@ pub fn cancel<'a>(
         let control = lock(controls()).get(job_id).cloned();
         let control = control.ok_or_else(|| "任务未在运行或已结束".to_string())?;
         control.cancel()?;
-        control.wait_done().await;
+        // 兜底：worker 卡在黑洞网络时，等待超时后强制标记失败并释放控制句柄。
+        if tokio::time::timeout(Duration::from_secs(30), control.wait_done())
+            .await
+            .is_err()
+        {
+            control.finish();
+            if let Some(mut job) = state.inner.read().transfers.get_mut(job_id) {
+                job.status = TransferStatus::Error;
+                job.error = Some("取消超时，传输线程未在 30 秒内退出".into());
+            }
+            lock(controls()).remove(job_id);
+            return Err("取消超时，传输线程未在 30 秒内退出".into());
+        }
         let job = state
             .inner
             .read()
@@ -959,7 +984,7 @@ pub fn cancel<'a>(
                 return Err(job.error.unwrap_or_else(|| "取消清理失败".into()));
             }
             if job.status != TransferStatus::Done {
-                state.inner.write().transfers.remove(job_id);
+                let _ = state.inner.read().transfers.remove(job_id);
             }
         }
         Ok(())

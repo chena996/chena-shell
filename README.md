@@ -6,7 +6,7 @@ Chena-Shell 是一款运行在 Windows 本地的桌面 SSH 工具。它不经过
 
 除了常规终端，它把「AI 助手接入」当作一等能力：AI 通过标准 MCP 协议以访客身份附加到指定会话，执行前需要人工审批，执行过程有独立只读回显，命令与输出会落盘留痕。
 
-当前版本：**V1.0.0.12**（仅 Windows x64 绿色版）
+当前版本：**V1.0.0.13**（仅 Windows x64 绿色版）
 
 ## 功能
 
@@ -40,7 +40,7 @@ Chena-Shell 是一款运行在 Windows 本地的桌面 SSH 工具。它不经过
 
 - 支持 MCP Streamable HTTP 与 stdio 两种传输
 - HTTP 默认仅监听 loopback，端点 `http://127.0.0.1:<端口>/mcp`，使用 `Authorization: Bearer <凭据>`
-- stdio 通过 `Chena-Shell_V1.0.0.12.exe --mcp-stdio` 启动
+- stdio 通过 `Chena-Shell_V1.0.0.13.exe --mcp-stdio` 启动
 - 读写接入令牌，与客户端、会话、连接和权限绑定，并带有效期
 - `read` 只能读取终端回放；`write` 才能执行命令或按授权使用 SFTP、sudo；`diag` 只执行白名单只读诊断命令
 - 任务级授权：有效期内白名单只读命令免逐条审批，写操作和高危命令仍需确认
@@ -56,8 +56,8 @@ Chena-Shell 是一款运行在 Windows 本地的桌面 SSH 工具。它不经过
 
 ## 运行
 
-1. 解压便携包 `Chena-Shell_V1.0.0.12_portable.zip`，不要只复制 EXE
-2. 运行 `Chena-Shell_V1.0.0.12.exe`
+1. 解压便携包 `Chena-Shell_V1.0.0.13_portable.zip`，不要只复制 EXE
+2. 运行 `Chena-Shell_V1.0.0.13.exe`
 3. 无需安装；配置与日志写入 `%APPDATA%\chena-shell`
 
 > 当前可执行文件未做 Authenticode 代码签名，Windows SmartScreen 可能提示「未知发布者」。请核对发布页提供的 SHA-256 后再运行。

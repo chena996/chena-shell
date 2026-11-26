@@ -3,6 +3,17 @@
 //! This is the Tauri backend. It manages SSH sessions, exposes them as an MCP Server,
 //! and hosts resource monitors + security policy enforcement.
 
+// 以下为既有实现约定的风格 lint，集中放行；CI 仍以 `-D warnings` 阻断其余警告。
+#![allow(
+    clippy::empty_line_after_doc_comments,
+    clippy::type_complexity,
+    clippy::manual_pattern_char_comparison,
+    clippy::field_reassign_with_default,
+    clippy::question_mark,
+    clippy::manual_async_fn,
+    clippy::derivable_impls
+)]
+
 mod approval;
 mod commands;
 mod forward;
@@ -86,6 +97,7 @@ pub fn run() {
             let _ = logging::ai_dir();
             let _ = logging::ai_terminal_dir();
             logging::cleanup_logs(app_state.inner.read().settings.log_retention_days);
+            commands::cleanup_edit_cache();
 
             // 仅在启用且允许自动启动时运行 MCP 服务。
             let should_start_mcp = {

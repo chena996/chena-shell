@@ -565,9 +565,9 @@ fn publish<R: tauri::Runtime>(
     app: &tauri::AppHandle<R>,
     snapshot: MonitorSnapshot,
 ) {
-    state
+    let _ = state
         .inner
-        .write()
+        .read()
         .monitor_samples
         .insert(snapshot.session_id.clone(), snapshot.clone());
     let _ = app.emit("monitor-update", snapshot);

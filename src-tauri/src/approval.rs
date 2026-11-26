@@ -342,6 +342,19 @@ pub fn consume_approved(
     }
 }
 
+/// 执行失败时把已消费的审批单回滚为 Approved，允许用户重试同一条命令而不必重新审批。
+///
+/// 只回滚仍处于 Consumed 且未被清理的条目；已过期或被拒的审批不会被复活。
+pub fn revert_to_approved(state: &AppState, id: &str) {
+    let inner = state.inner.read();
+    if let Some(mut entry) = inner.confirmations.get_mut(id) {
+        if entry.status == ConfirmationStatus::Consumed {
+            entry.value_mut().status = ConfirmationStatus::Approved;
+            entry.value_mut().resolution = Some("执行失败，已回滚为待执行".into());
+        }
+    };
+}
+
 pub fn cancel_session(state: &AppState, session_id: &str, reason: &str) {
     let cancelled = {
         let inner = state.inner.read();

@@ -1,11 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for all windows — includes window creation for SFTP multi-window",
-  "windows": ["main", "chena-sftp-*", "sftp-*", "chena-edit-*"],
+  "description": "Default capability for the main window and the SFTP/editor child windows. Window creation stays in the Rust backend, so the create permissions are intentionally absent.",
+  "windows": ["main", "chena-sftp-*", "chena-edit-*"],
   "permissions": [
     "core:default",
-    "core:window:allow-create",
     "core:window:allow-close",
     "core:window:allow-destroy",
     "core:window:allow-show",
@@ -30,7 +29,6 @@
     "core:window:allow-get-all-windows",
     "core:window:allow-start-dragging",
     "core:webview:default",
-    "core:webview:allow-create-webview-window",
     "core:webview:allow-set-webview-focus"
   ]
 }
